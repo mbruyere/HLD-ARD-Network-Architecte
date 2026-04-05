@@ -1,0 +1,84 @@
+{# =========================================================================== #}
+{# VyOS HA (VRRP) Template                                                   #}
+{# =========================================================================== #}
+{# Renders VRRP groups for active-active or active-passive HA.               #}
+{# VyOS uses VRRP for gateway redundancy — each VLAN SVI gets a VRRP group. #}
+{#                                                                            #}
+{# Context variables (from Neo4j SSoT):                                       #}
+{#   - device        : dict — target device properties (includes ha_role)     #}
+{#   - fw_interfaces : list — interfaces with VLAN/subnet assignments         #}
+{#   - segments      : list — population segments                             #}
+{#   - fw_transit    : dict — inter-firewall transit link                     #}
+{# =========================================================================== #}
+
+! ==========================================================================
+! High Availability — VRRP Configuration ({{ device.hostname }})
+! ==========================================================================
+! HA Model  : {{ device.ha_model }}
+! HA Role   : {{ device.ha_role }}
+! Pair      : {{ device.pair_name }}
+! ==========================================================================
+
+{% set uplink_if = device.uplink_interface | default('eth0') %}
+{% set ha_if = device.ha_interface | default('eth2') %}
+
+{# ---------- CONNTRACK SYNC (Session State Replication) ---------- #}
+{# Both nodes synchronize connection tracking tables over the HA link #}
+
+set service conntrack-sync accept-protocol 'tcp,udp,icmp'
+set service conntrack-sync event-listen-queue-size '8'
+set service conntrack-sync failover-mechanism vrrp sync-group 'FW-HA-GROUP'
+set service conntrack-sync interface {{ ha_if }} peer '{{ device.ha_peer_ip }}'
+set service conntrack-sync mcast-group '225.0.0.50'
+set service conntrack-sync disable-external-cache
+
+{# ---------- VRRP SYNC GROUP ---------- #}
+{# All VRRP instances belong to the same sync group for coordinated failover #}
+
+set high-availability vrrp sync-group FW-HA-GROUP member
+{%- for iface in fw_interfaces if iface.device_id == device.device_id and iface.vlan_id is not none %} 'VRRP-VLAN{{ iface.vlan_id }}'{% endfor %}
+
+{% if fw_transit is defined and fw_transit.vlan_id is defined %}
+set high-availability vrrp sync-group FW-HA-GROUP member 'VRRP-TRANSIT'
+{% endif %}
+
+{# ---------- VRRP INSTANCES — Per-VLAN Virtual Gateways ---------- #}
+{# Each VLAN gets a VRRP group. The virtual IP is the .1 gateway address. #}
+
+{% for iface in fw_interfaces if iface.device_id == device.device_id and iface.vlan_id is not none %}
+{% set vrrp_id = iface.vlan_id % 255 %}
+{# Priority: primary node gets 150, secondary gets 100 #}
+{% if device.ha_role in ['ACTIVE', 'ACTIVE_ACTIVE_MEMBER'] %}
+{% set vrrp_priority = 150 %}
+{% set vrrp_preempt = true %}
+{% else %}
+{% set vrrp_priority = 100 %}
+{% set vrrp_preempt = false %}
+{% endif %}
+
+! --- VRRP Group for VLAN {{ iface.vlan_id }} ({{ iface.vlan_name }}) ---
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} interface '{{ uplink_if }}.{{ iface.vlan_id }}'
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} vrid '{{ vrrp_id }}'
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} priority '{{ vrrp_priority }}'
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} virtual-address '{{ iface.gateway_ip }}'
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} hello-source-address '{{ iface.gateway_ip | replace(".1/", ".%s/" % (2 if device.ha_role == "ACTIVE" else 3)) }}'
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} description 'Gateway HA for VLAN {{ iface.vlan_id }} — {{ iface.vlan_name }}'
+{% if not vrrp_preempt %}
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} no-preempt
+{% endif %}
+set high-availability vrrp group VRRP-VLAN{{ iface.vlan_id }} rfc3768-compatibility
+
+{% endfor %}
+
+{# ---------- VRRP — Transit Link ---------- #}
+{% if fw_transit is defined and fw_transit.vlan_id is defined %}
+{% set transit_if = device.transit_interface | default('eth1') %}
+{% set transit_vrrp_id = fw_transit.vlan_id % 255 %}
+
+! --- VRRP Group for Inter-FW Transit (VLAN {{ fw_transit.vlan_id }}) ---
+set high-availability vrrp group VRRP-TRANSIT interface '{{ transit_if }}.{{ fw_transit.vlan_id }}'
+set high-availability vrrp group VRRP-TRANSIT vrid '{{ transit_vrrp_id }}'
+set high-availability vrrp group VRRP-TRANSIT priority '{% if device.ha_role in ["ACTIVE", "ACTIVE_ACTIVE_MEMBER"] %}150{% else %}100{% endif %}'
+set high-availability vrrp group VRRP-TRANSIT virtual-address '{{ fw_transit.transit_gateway }}'
+set high-availability vrrp group VRRP-TRANSIT description 'Gateway HA for Inter-FW Transit VLAN {{ fw_transit.vlan_id }}'
+{% endif %}

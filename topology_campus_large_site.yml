@@ -1,0 +1,512 @@
+# =============================================================================
+# NetLab Topology — Enterprise Campus (Large Site)
+# Generated from: Enterprise_Campus_Network_HLD v1.0
+# HLD Sections: Site Architecture, Network Layers, VLAN/VRF Model, Firewall
+# =============================================================================
+# Site Profile: Large Site — Three-Tier Architecture
+#   Access (3 switches) → Aggregation (2 switches) → Core/Firewall (2 FW pairs)
+# Populations: Employee, Voice, Video, Guest, IoT, Contractor, Management OOB
+# DMZ Zones:   DNS, Active Directory, File Services, PBX, Publishing
+# Internet:    3 ISP links (Browsing, VPN, Publishing)
+# HA Model:    Active-active (represented as 2 nodes + sync link)
+# =============================================================================
+
+# --- Provider -----------------------------------------------------------------
+# Use containerlab for container-based lab; swap to 'libvirt' for KVM/VMs
+provider: clab
+
+# --- Global defaults ----------------------------------------------------------
+defaults:
+  device: eos                   # Default device: Arista EOS (changeable to iosxe, vyos, etc.)
+  pool: campus_pool
+
+# --- IP Addressing pools ------------------------------------------------------
+# Derived from HLD "Logical addressing framework using RFC1918 space"
+addressing:
+  # Management (OOB)
+  mgmt:
+    ipv4: 192.168.100.0/24
+    prefix: 24
+  # Loopback pool (for routed nodes)
+  loopback:
+    ipv4: 10.255.0.0/24
+    prefix: 32
+  # Population VLANs: 10.100.x.0/24 per VLAN
+  campus_pool:
+    ipv4: 10.100.0.0/16
+    prefix: 24
+  # DMZ VLANs: 10.200.x.0/24 per zone
+  dmz_pool:
+    ipv4: 10.200.0.0/16
+    prefix: 24
+  # Inter-device point-to-point links
+  p2p:
+    ipv4: 10.255.255.0/24
+    prefix: 30
+
+# --- VRF Definitions ----------------------------------------------------------
+# Each population group gets a VRF for routing isolation at the firewall layer
+# Derived from HLD "Population Types and Network Segmentation"
+vrfs:
+  EMPLOYEE:
+    description: "Corporate employees - full internal access"
+  VOICE:
+    description: "IP telephony - QoS priority, isolated routing"
+  VIDEO:
+    description: "Video collaboration - QoS priority"
+  GUEST:
+    description: "Guest internet-only - no internal routes"
+  IOT:
+    description: "IoT/Building management - restricted to controllers only"
+  CONTRACTOR:
+    description: "Third-party contractors - limited internal access"
+  OOB_MGMT:
+    description: "Out-of-band management - jump host access only"
+  DMZ_INFRA:
+    description: "Infrastructure DMZ - DNS, AD, File, PBX"
+  DMZ_PUBLISH:
+    description: "Publishing DMZ - internet-facing services (large site only)"
+
+# --- VLAN Definitions ---------------------------------------------------------
+# Derived from HLD "Population Types and Network Segmentation"
+# VLAN IDs per HLD: Population 100-160, DMZ 200-270
+vlans:
+  # --- Population VLANs (User Services Firewall side) ---
+  employee:
+    id: 100
+    vrf: EMPLOYEE
+    mode: route
+    description: "Corporate employees"
+    prefix: 10.100.0.0/24
+  voice:
+    id: 110
+    vrf: VOICE
+    mode: route
+    description: "IP telephony and UC devices"
+    prefix: 10.100.10.0/24
+  video:
+    id: 130
+    vrf: VIDEO
+    mode: route
+    description: "Video collaboration endpoints"
+    prefix: 10.100.30.0/24
+  guest:
+    id: 140
+    vrf: GUEST
+    mode: route
+    description: "Visitor/guest devices - internet only"
+    prefix: 10.100.40.0/24
+  iot:
+    id: 150
+    vrf: IOT
+    mode: route
+    description: "IoT and building management systems"
+    prefix: 10.100.50.0/24
+  contractor:
+    id: 160
+    vrf: CONTRACTOR
+    mode: route
+    description: "Contractor/third-party devices"
+    prefix: 10.100.60.0/24
+  # --- DMZ VLANs (DMZ/Internet Firewall side) ---
+  dmz_dns:
+    id: 200
+    vrf: DMZ_INFRA
+    mode: route
+    description: "DNS Services DMZ zone"
+    prefix: 10.200.0.0/24
+  dmz_ad:
+    id: 210
+    vrf: DMZ_INFRA
+    mode: route
+    description: "Active Directory Services DMZ zone"
+    prefix: 10.200.10.0/24
+  dmz_file:
+    id: 220
+    vrf: DMZ_INFRA
+    mode: route
+    description: "File Services DMZ zone"
+    prefix: 10.200.20.0/24
+  dmz_pbx:
+    id: 240
+    vrf: DMZ_INFRA
+    mode: route
+    description: "PBX/Telephony Infrastructure DMZ"
+    prefix: 10.200.40.0/24
+  dmz_publish:
+    id: 250
+    vrf: DMZ_PUBLISH
+    mode: route
+    description: "Publishing DMZ - public-facing web/reverse proxy"
+    prefix: 10.200.50.0/24
+  # --- Management OOB VLAN ---
+  oob_mgmt:
+    id: 999
+    vrf: OOB_MGMT
+    mode: route
+    description: "Out-of-band management network"
+    prefix: 192.168.100.0/24
+  # --- Inter-firewall transit VLAN ---
+  fw_interlink:
+    id: 300
+    mode: route
+    description: "Transit link between User Services FW and DMZ FW"
+    prefix: 10.255.254.0/30
+
+# --- Node Groups --------------------------------------------------------------
+# Derived from HLD "Site Architecture Types" and "Switching Infrastructure"
+groups:
+  # Access layer switches - Layer 2, 24-48 ports per HLD
+  access_layer:
+    members: [access1, access2, access3]
+    device: eos
+    module: [vlan, stp]
+    node_data:
+      stp.mode: rstp
+      stp.priority: 32768         # Lower priority at aggregation (root guard on access)
+
+  # Aggregation layer switches - Layer 2 aggregation per HLD
+  aggregation_layer:
+    members: [agg1, agg2]
+    device: eos
+    module: [vlan, stp, lag]
+    node_data:
+      stp.mode: rstp
+      stp.priority: 4096           # Root bridge candidates at aggregation layer
+
+  # User Services Firewall pair - L3 boundary for user VLANs
+  # HA: active-active (represented as 2 nodes + sync link per HLD)
+  # Device: replace 'vyos' with 'asa' or 'fortios' as per platform choice
+  user_fw_pair:
+    members: [usf1, usf2]
+    device: vyos
+    module: [vlan, vrf, gateway]
+    node_data:
+      gateway.protocol: anycast    # Anycast gateway for seamless HA
+
+  # DMZ/Internet Firewall pair - L3 boundary for DMZ + internet
+  dmz_fw_pair:
+    members: [dmzfw1, dmzfw2]
+    device: vyos
+    module: [vlan, vrf, gateway]
+    node_data:
+      gateway.protocol: anycast
+
+  # DMZ servers (stub hosts representing DMZ zones)
+  dmz_servers:
+    members: [srv_dns, srv_ad, srv_file, srv_pbx, srv_publish]
+    device: linux
+
+  # OOB management
+  oob_hosts:
+    members: [jumphost]
+    device: linux
+
+  # Internet stubs (represent ISP peering points)
+  isp_stubs:
+    members: [isp_browse, isp_vpn, isp_publish]
+    device: linux
+
+# --- Nodes --------------------------------------------------------------------
+nodes:
+  # --- Access Layer (3 switches per large site per HLD) ---
+  access1:
+    description: "Access Switch 1 - Floor/Wing A"
+  access2:
+    description: "Access Switch 2 - Floor/Wing B"
+  access3:
+    description: "Access Switch 3 - Floor/Wing C"
+
+  # --- Aggregation Layer (active-active pair per HLD) ---
+  agg1:
+    description: "Aggregation Switch 1 - Active"
+  agg2:
+    description: "Aggregation Switch 2 - Active"
+
+  # --- User Services Firewall Pair (active-active HA per HLD) ---
+  usf1:
+    description: "User Services Firewall - Node 1 (Active)"
+    # NOTE: HA cluster config (session sync, virtual IPs) must be added
+    # as a custom config template — not expressible in netlab topology.yml
+  usf2:
+    description: "User Services Firewall - Node 2 (Active)"
+
+  # --- DMZ / Internet Firewall Pair (active-active HA per HLD) ---
+  dmzfw1:
+    description: "DMZ & Internet Firewall - Node 1 (Active)"
+  dmzfw2:
+    description: "DMZ & Internet Firewall - Node 2 (Active)"
+
+  # --- DMZ Server Stubs ---
+  srv_dns:
+    description: "DNS Services server (DMZ VLAN 200)"
+  srv_ad:
+    description: "Active Directory server (DMZ VLAN 210)"
+  srv_file:
+    description: "File Services server (DMZ VLAN 220)"
+  srv_pbx:
+    description: "PBX/Telephony server (DMZ VLAN 240)"
+  srv_publish:
+    description: "Publishing reverse proxy (DMZ VLAN 250)"
+
+  # --- OOB Management ---
+  jumphost:
+    description: "OOB Jump Host - sole entry to management network"
+
+  # --- ISP stubs ---
+  isp_browse:
+    description: "ISP Link 1 - User browsing internet path"
+  isp_vpn:
+    description: "ISP Link 2 - IPsec VPN termination path"
+  isp_publish:
+    description: "ISP Link 3 - Publishing/inbound services path"
+
+# --- Links --------------------------------------------------------------------
+# Derived from HLD "Network Layer Architecture" connection matrix
+# and "Switching Infrastructure Design" trunk specifications
+
+links:
+  # ===========================================================================
+  # Access → Aggregation: dual-homed trunks (all population VLANs)
+  # Per HLD: "each access switch connects to both aggregation switches"
+  # Carrying VLANs 100-160 (population) + 999 (OOB)
+  # ===========================================================================
+  - access1:
+    agg1:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access1 → Agg1 trunk (all population VLANs)"
+
+  - access1:
+    agg2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access1 → Agg2 trunk (all population VLANs)"
+
+  - access2:
+    agg1:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access2 → Agg1 trunk"
+
+  - access2:
+    agg2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access2 → Agg2 trunk"
+
+  - access3:
+    agg1:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access3 → Agg1 trunk"
+
+  - access3:
+    agg2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+    description: "Access3 → Agg2 trunk"
+
+  # ===========================================================================
+  # Aggregation peer-link (Port-Channel)
+  # Per HLD: "peer link port-channel VLAN extension between aggregation switches"
+  # ===========================================================================
+  - agg1:
+    agg2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor, oob_mgmt]
+      lag.lacp: true
+      description: "Aggregation peer-link (LACP Port-Channel)"
+
+  # ===========================================================================
+  # Aggregation → User Services Firewall: population VLANs (100-160)
+  # Per HLD: "AGG1/AGG2 → USF Population VLANs 100-160"
+  # Dual uplinks for active-active HA
+  # ===========================================================================
+  - agg1:
+    usf1:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor]
+      description: "Agg1 → USF1 population trunk"
+
+  - agg1:
+    usf2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor]
+      description: "Agg1 → USF2 population trunk"
+
+  - agg2:
+    usf1:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor]
+      description: "Agg2 → USF1 population trunk"
+
+  - agg2:
+    usf2:
+      vlan.trunk: [employee, voice, video, guest, iot, contractor]
+      description: "Agg2 → USF2 population trunk"
+
+  # ===========================================================================
+  # Aggregation → DMZ/Internet Firewall: DMZ VLANs (200-270)
+  # Per HLD: "AGG1/AGG2 → DMZF DMZ VLANs 200-270"
+  # ===========================================================================
+  - agg1:
+    dmzfw1:
+      vlan.trunk: [dmz_dns, dmz_ad, dmz_file, dmz_pbx, dmz_publish]
+      description: "Agg1 → DMZ-FW1 DMZ trunk"
+
+  - agg1:
+    dmzfw2:
+      vlan.trunk: [dmz_dns, dmz_ad, dmz_file, dmz_pbx, dmz_publish]
+      description: "Agg1 → DMZ-FW2 DMZ trunk"
+
+  - agg2:
+    dmzfw1:
+      vlan.trunk: [dmz_dns, dmz_ad, dmz_file, dmz_pbx, dmz_publish]
+      description: "Agg2 → DMZ-FW1 DMZ trunk"
+
+  - agg2:
+    dmzfw2:
+      vlan.trunk: [dmz_dns, dmz_ad, dmz_file, dmz_pbx, dmz_publish]
+      description: "Agg2 → DMZ-FW2 DMZ trunk"
+
+  # ===========================================================================
+  # User Services FW ↔ DMZ/Internet FW inter-firewall link
+  # Per HLD: "inter-firewall communication link" (transit VLAN 300)
+  # ===========================================================================
+  - usf1:
+    dmzfw1:
+      vlan.access: fw_interlink
+      description: "Inter-FW link: USF1 ↔ DMZFW1 (active path)"
+
+  - usf2:
+    dmzfw2:
+      vlan.access: fw_interlink
+      description: "Inter-FW link: USF2 ↔ DMZFW2 (secondary/HA path)"
+
+  # ===========================================================================
+  # HA heartbeat / state sync links (within each FW pair)
+  # Per HLD: "session state synchronization" for active-active clustering
+  # NOTE: netlab models this structurally; HA config is manual
+  # ===========================================================================
+  - usf1:
+    usf2:
+      description: "USF HA heartbeat & session sync link"
+      mtu: 9000
+
+  - dmzfw1:
+    dmzfw2:
+      description: "DMZ-FW HA heartbeat & session sync link"
+      mtu: 9000
+
+  # ===========================================================================
+  # DMZ Server connections (access ports into respective DMZ VLANs)
+  # ===========================================================================
+  - srv_dns:
+    dmzfw1:
+      vlan.access: dmz_dns
+      description: "DNS server → DMZ VLAN 200"
+
+  - srv_ad:
+    dmzfw1:
+      vlan.access: dmz_ad
+      description: "AD server → DMZ VLAN 210"
+
+  - srv_file:
+    dmzfw1:
+      vlan.access: dmz_file
+      description: "File server → DMZ VLAN 220"
+
+  - srv_pbx:
+    dmzfw1:
+      vlan.access: dmz_pbx
+      description: "PBX server → DMZ VLAN 240"
+
+  - srv_publish:
+    dmzfw1:
+      vlan.access: dmz_publish
+      description: "Publish proxy → DMZ VLAN 250"
+
+  # ===========================================================================
+  # OOB Management network
+  # Per HLD: "out-of-band management infrastructure for operational security"
+  # Jump host is the sole ingress point
+  # ===========================================================================
+  - jumphost:
+    usf1:
+      vlan.access: oob_mgmt
+      description: "Jump host → OOB mgmt VLAN (USF1)"
+
+  - jumphost:
+    agg1:
+      vlan.access: oob_mgmt
+      description: "Jump host → OOB mgmt VLAN (Agg1)"
+
+  # ===========================================================================
+  # Internet links (3 paths per HLD "Internet Connectivity Strategy")
+  # ISP links modelled as stubs — NAT/routing config is manual
+  # ===========================================================================
+  - dmzfw1:
+    isp_browse:
+      description: "ISP Link 1 - User browsing egress (DMZFW1)"
+      role: stub
+
+  - dmzfw1:
+    isp_vpn:
+      description: "ISP Link 2 - IPsec VPN egress (DMZFW1)"
+      role: stub
+
+  - dmzfw1:
+    isp_publish:
+      description: "ISP Link 3 - Publishing inbound (DMZFW1)"
+      role: stub
+
+  # ===========================================================================
+  # Example access ports (endpoints — represent typical population hosts)
+  # In production lab, replace with actual endpoint VMs or containers
+  # ===========================================================================
+  - name: employee_host
+    device: linux
+    access1:
+      vlan.access: employee
+    description: "Sample employee endpoint — VLAN 100"
+
+  - name: voice_phone
+    device: linux
+    access1:
+      vlan.access: voice
+    description: "Sample IP phone — VLAN 110"
+
+  - name: guest_device
+    device: linux
+    access2:
+      vlan.access: guest
+    description: "Sample guest device — VLAN 140"
+
+# =============================================================================
+# NOTES FOR MANUAL COMPLETION
+# =============================================================================
+# The following items are NOT expressed in this topology.yml and must be
+# added as custom Jinja2 config templates or post-deployment configuration:
+#
+# 1. FIREWALL POLICY RULES (usf1, usf2, dmzfw1, dmzfw2):
+#    - Default-deny between all zones
+#    - Explicit permits per HLD "Security Policy Framework"
+#    - NAT/PAT rules for internet-bound user traffic
+#
+# 2. HA CLUSTER CONFIGURATION (usf1/usf2 and dmzfw1/dmzfw2):
+#    - Virtual cluster IP addresses per VLAN
+#    - Session state synchronization parameters
+#    - Preemption and failback policy
+#
+# 3. IPSEC VPN (dmzfw1, dmzfw2):
+#    - IKEv2 phase 1/2 proposals
+#    - Pre-shared keys or certificate references
+#    - Hub-and-spoke crypto map for branch sites
+#
+# 4. QoS POLICIES (access layer to firewall):
+#    - DSCP marking at access port ingress
+#    - Priority queuing for DSCP EF (voice) and AF41 (video)
+#
+# 5. 802.1X / NAC (access layer):
+#    - dot1x system-auth-control
+#    - RADIUS server configuration (ISE)
+#    - MAB fallback for non-802.1X devices
+#
+# 6. DHCP SNOOPING / DAI (access and aggregation):
+#    - ip dhcp snooping vlan <list>
+#    - ip arp inspection vlan <list>
+#
+# 7. INTER-SITE VPN MESH:
+#    - See companion topology: topology_campus_multisite.yml
+# =============================================================================

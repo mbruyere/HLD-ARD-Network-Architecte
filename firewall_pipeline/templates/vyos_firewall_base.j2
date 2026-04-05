@@ -1,0 +1,103 @@
+{# =========================================================================== #}
+{# VyOS Firewall Base Template                                                #}
+{# =========================================================================== #}
+{# Shared template for both USF and DMZFW devices.                            #}
+{# Renders: interfaces, VLANs, zone definitions, and system parameters.       #}
+{#                                                                            #}
+{# Context variables (from Neo4j SSoT):                                       #}
+{#   - device        : dict  — target device properties                       #}
+{#   - fw_interfaces : list  — interfaces with VLAN/subnet assignments        #}
+{#   - zones         : list  — security zone definitions                      #}
+{#   - segments      : list  — population segments with VLAN/zone mappings    #}
+{#   - fw_transit    : dict  — inter-firewall transit link                    #}
+{#   - render_meta   : dict  — rendering metadata (timestamp, intent refs)    #}
+{# =========================================================================== #}
+
+{# ---------- AUDIT HEADER ---------- #}
+{# This comment block is embedded in the rendered config for traceability #}
+! ==========================================================================
+! VyOS Firewall Configuration — {{ device.hostname }}
+! ==========================================================================
+! Device ID     : {{ device.device_id }}
+! Device Role   : {{ device.device_role }}
+! HA Role       : {{ device.ha_role }}
+! Pair          : {{ device.pair_name }} ({{ device.ha_model }})
+! Site          : {{ device.site_name | default('N/A') }}
+! Rendered at   : {{ render_meta.timestamp }}
+! Rendered by   : Orchestration Agent (Agent 5) — IBN Closed Loop
+! SSoT snapshot : {{ render_meta.ssot_snapshot_id }}
+{% if render_meta.intents is defined %}
+{% for intent in render_meta.intents %}
+! Intent        : {{ intent.intent_id }} — {{ intent.intent_statement | truncate(60) }}
+{% endfor %}
+{% endif %}
+! ==========================================================================
+
+{# ---------- SYSTEM ---------- #}
+set system host-name '{{ device.hostname }}'
+set system domain-name 'campus.local'
+set system time-zone 'UTC'
+set system syslog global facility all level 'info'
+set system syslog host '{{ render_meta.syslog_server | default("192.168.100.10") }}' facility all level 'info'
+
+{# ---------- INTERFACES — VLAN sub-interfaces ---------- #}
+{# Each trunk VLAN gets a sub-interface on the uplink physical interface #}
+{% set uplink_if = device.uplink_interface | default('eth0') %}
+{% for iface in fw_interfaces if iface.device_id == device.device_id and iface.vlan_id is not none %}
+
+{# --- VLAN {{ iface.vlan_id }} : {{ iface.vlan_name }} --- #}
+set interfaces ethernet {{ uplink_if }} vif {{ iface.vlan_id }} address '{{ iface.gateway_ip }}/{{ iface.subnet_prefix | ipaddr_prefixlen }}'
+set interfaces ethernet {{ uplink_if }} vif {{ iface.vlan_id }} description '{{ iface.vlan_name | upper }} — VLAN {{ iface.vlan_id }}'
+{% if iface.admin_state == 'SHUTDOWN' %}
+set interfaces ethernet {{ uplink_if }} vif {{ iface.vlan_id }} disable
+{% endif %}
+{% endfor %}
+
+{# ---------- INTER-FIREWALL TRANSIT LINK ---------- #}
+{% if fw_transit is defined and fw_transit.vlan_id is defined %}
+{% set transit_if = device.transit_interface | default('eth1') %}
+set interfaces ethernet {{ transit_if }} vif {{ fw_transit.vlan_id }} address '{{ device.transit_ip }}/{{ fw_transit.transit_prefix | ipaddr_prefixlen }}'
+set interfaces ethernet {{ transit_if }} vif {{ fw_transit.vlan_id }} description 'FW-INTERLINK — Transit VLAN {{ fw_transit.vlan_id }}'
+{% endif %}
+
+{# ---------- HA HEARTBEAT INTERFACE ---------- #}
+{% set ha_if = device.ha_interface | default('eth2') %}
+set interfaces ethernet {{ ha_if }} description 'HA heartbeat and session sync'
+set interfaces ethernet {{ ha_if }} mtu '9000'
+
+{# ---------- MANAGEMENT INTERFACE ---------- #}
+{% set mgmt_if = device.mgmt_interface | default('eth3') %}
+{% if device.mgmt_ip is defined %}
+set interfaces ethernet {{ mgmt_if }} address '{{ device.mgmt_ip }}/24'
+set interfaces ethernet {{ mgmt_if }} description 'OOB Management — VLAN 999'
+{% endif %}
+
+{# ---------- ZONE DEFINITIONS ---------- #}
+{# Map each Neo4j Zone to a VyOS zone-policy zone #}
+{% for zone in zones %}
+set zone-policy zone {{ zone.zone_name | lower | replace(' ', '_') }} default-action '{{ zone.default_policy | lower }}'
+set zone-policy zone {{ zone.zone_name | lower | replace(' ', '_') }} description '{{ zone.zone_name }} — Security Level {{ zone.security_level }}'
+{% endfor %}
+
+{# ---------- INTERFACE-TO-ZONE ASSIGNMENT ---------- #}
+{# Assign VLAN sub-interfaces to their respective zones based on segment→zone mapping #}
+{% for seg in segments %}
+{% set zone_name = seg.zone_name | lower | replace(' ', '_') %}
+{% if seg.vlan_id is not none %}
+{#   Only assign if this VLAN is trunked to this firewall #}
+{% set ns = namespace(found=false) %}
+{% for iface in fw_interfaces if iface.device_id == device.device_id and iface.vlan_id == seg.vlan_id %}
+{% set ns.found = true %}
+{% endfor %}
+{% if ns.found %}
+set zone-policy zone {{ zone_name }} interface '{{ uplink_if }}.{{ seg.vlan_id }}'
+{% endif %}
+{% endif %}
+{% endfor %}
+
+{# Assign transit interface to a dedicated transit zone #}
+{% if fw_transit is defined and fw_transit.vlan_id is defined %}
+set zone-policy zone transit default-action 'drop'
+set zone-policy zone transit description 'Inter-Firewall Transit Zone'
+set zone-policy zone transit interface '{{ transit_if | default("eth1") }}.{{ fw_transit.vlan_id }}'
+{% endif %}

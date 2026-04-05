@@ -1,0 +1,203 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#1a365d',
+    'primaryTextColor': '#ffffff',
+    'primaryBorderColor': '#2d3748',
+    'secondaryColor': '#2b6cb0',
+    'tertiaryColor': '#e2e8f0',
+    'lineColor': '#4a5568',
+    'fontSize': '13px',
+    'fontFamily': 'Inter, Segoe UI, sans-serif'
+  },
+  'flowchart': { 'curve': 'basis', 'nodeSpacing': 30, 'rankSpacing': 50 }
+}}%%
+
+flowchart TB
+    %% =====================================================================
+    %% IBN CLOSED-LOOP FEEDBACK CONTROL ARCHITECTURE — FULL DETAIL
+    %% RFC 9315 + MALT Multi-Model Lifecycle + 10 AI Agents
+    %% =====================================================================
+
+    %% ======================== USER SPACE ========================
+    subgraph OUTER["<b>OUTER LOOP — Human-in-the-Loop</b><br/><i>RFC 9315 §6 — User Space</i>"]
+        direction LR
+        HumanOp["👤 <b>Human Operator</b><br/>Intent Author<br/>Outer Loop Decision Maker"]
+
+        subgraph REPORT_PLANE["Reporting Plane"]
+            direction TB
+            A10["🤖 <b>Agent 10 — Reporting</b><br/>RFC 9315: Report<br/>• Compliance dashboards<br/>• NL status reports<br/>• Alert notifications<br/>• Intent effectiveness KPIs"]
+            A9["🤖 <b>Agent 9 — Abstraction</b><br/>RFC 9315: Abstract / Aggregate<br/>• Up-level device→intent<br/>• Trend analysis<br/>• Business-impact correlation<br/>• NL explanations"]
+        end
+    end
+
+    %% ======================== FULFILLMENT PLANE ========================
+    subgraph FULFILL["<b>INTENT FULFILLMENT PLANE</b><br/><i>RFC 9315 §5.1 — Translation / IBS Space</i>"]
+        direction TB
+
+        A1["🤖 <b>Agent 1 — Ingestion</b><br/>RFC 9315 §5.1.1: Recognize / Generate<br/>• NLP parse / template / API<br/>• Interactive refinement<br/>• Conflict detection vs SSoT<br/>• Feasibility validation<br/>─────────────<br/>Writes: Intent node ➜ Neo4j L4<br/>Links: Intent→BusinessUseCase"]
+
+        A2["🤖 <b>Agent 2 — Intent→Policy</b><br/>RFC 9315 §5.1.2: Translate (stage 1)<br/>• Decompose intent → policy rules<br/>• Resolve policy conflicts<br/>• Assign SGT, zone, DSCP<br/>• Map to HLD population model<br/>─────────────<br/>Writes: Policy, FirewallRule, SGT ➜ L4<br/>Creates: WHAT-IF model instances"]
+
+        A3["🤖 <b>Agent 3 — Policy→Config</b><br/>RFC 9315 §5.1.2: Translate (stage 2)<br/>• Render vendor-specific configs<br/>• VyOS Jinja2 templates (FW)<br/>• Per-device config diffs<br/>• NetLab-compatible output<br/>─────────────<br/>Writes: Configuration ➜ L5<br/>Creates: CANDIDATE model"]
+
+        A4["🤖 <b>Agent 4 — Planning & Optimization</b><br/>RFC 9315 §5.1.2: Learn / Plan / Render<br/>• <b>What-If analysis</b> (MALT §2.2)<br/>• <b>Drain-impact assessment</b><br/>• Blast radius via graph traversal<br/>• Migration sequencing<br/>• Historical learning from outcomes<br/>─────────────<br/>Writes: MigrationPlan, ChangeReq ➜ L7<br/>Promotes: CANDIDATE → POR"]
+
+        A5["🤖 <b>Agent 5 — Orchestration</b><br/>RFC 9315 §5.1.3: Configure / Provision<br/>• Generate/update topology.yml<br/>• Push config via SSH/NETCONF<br/>• Jinja2 FW pipeline execution<br/>• Post-deploy verification<br/>• Transactional rollback on failure<br/>─────────────<br/>Writes: DeploymentEvent ➜ L5<br/>Creates: DEPLOYED model"]
+    end
+
+    %% ======================== NETLAB ========================
+    subgraph NETLAB["<b>TARGET NETWORK — NetLab</b><br/><i>RFC 9315 — Network Operations Space</i>"]
+        direction LR
+        NL_ACC["🖧 Access<br/>Switches"]
+        NL_AGG["🖧 Aggregation<br/>Switches"]
+        NL_USF["🛡️ User Services<br/>Firewall (VyOS)<br/><i>Jinja2 pipeline</i>"]
+        NL_DMZ["🛡️ DMZ/Internet<br/>Firewall (VyOS)<br/><i>Jinja2 pipeline</i>"]
+        NL_EDGE["🌐 Internet Edge<br/>ISP Stubs"]
+
+        NL_ACC --- NL_AGG
+        NL_AGG --- NL_USF
+        NL_AGG --- NL_DMZ
+        NL_USF -- "VLAN 300<br/>Transit" --- NL_DMZ
+        NL_DMZ --- NL_EDGE
+    end
+
+    %% ======================== ASSURANCE PLANE ========================
+    subgraph ASSURE["<b>INTENT ASSURANCE PLANE</b><br/><i>RFC 9315 §5.2 — Translation / IBS + Network Ops</i>"]
+        direction TB
+
+        A6["🤖 <b>Agent 6 — Monitoring</b><br/>RFC 9315 §5.2.1: Monitor / Observe<br/>• gNMI / NETCONF / SSH polling<br/>• SNMP, syslog, NetFlow<br/>• Anomaly detection<br/>• <b>As-Built auditing</b> (MALT §2.2)<br/>─────────────<br/>Writes: Telemetry, OperState ➜ L5<br/>Creates: AS-BUILT model"]
+
+        A7["🤖 <b>Agent 7 — Compliance Assessment</b><br/>RFC 9315 §5.2.2: Validate / Analyze<br/>• POR vs AS-BUILT comparison<br/>• Intent drift detection<br/>• Root cause analysis (graph traversal)<br/>• Classify: COMPLIANT / NON_COMPLIANT /<br/>  DEGRADED / UNKNOWN<br/>─────────────<br/>Writes: ComplianceAssessment ➜ L6<br/>Writes: Incident, RootCause ➜ L6"]
+
+        A8["🤖 <b>Agent 8 — Compliance Action</b><br/>RFC 9315 §5.2.3: Remediate / Escalate<br/>• Info: log only (autonomous)<br/>• Low: auto-remediate (inner loop)<br/>• Medium: re-orchestrate + verify<br/>• High: escalate → human (outer loop)<br/>• Critical: rollback + freeze<br/>─────────────<br/>Writes: Remediation ➜ L6<br/>Writes: Ticket ➜ L9 (on escalate)"]
+    end
+
+    %% ======================== NEO4J SSoT ========================
+    subgraph SSOT["<b>NEO4J — SINGLE SOURCE OF TRUTH</b><br/><i>9-Layer Ontology + 5 Concurrent Model States (MALT)</i>"]
+        direction TB
+
+        subgraph MODELS["<b>Concurrent Model States</b> <i>(Mogul et al. MALT)</i>"]
+            direction LR
+            M_WI["💡 <b>WHAT-IF</b><br/>Explore options<br/><i>many, ephemeral</i>"]
+            M_CAND["📋 <b>CANDIDATE</b><br/>Proposed change<br/><i>validated</i>"]
+            M_POR["✅ <b>POR</b><br/>Plan of Record<br/><i>approved, versioned</i>"]
+            M_DEP["🚀 <b>DEPLOYED</b><br/>Pushed to NetLab<br/><i>awaiting verify</i>"]
+            M_AB["📡 <b>AS-BUILT</b><br/>Observed actual<br/><i>from telemetry</i>"]
+
+            M_WI -->|"select"| M_CAND
+            M_CAND -->|"approve"| M_POR
+            M_POR -->|"deploy"| M_DEP
+            M_DEP -->|"verify"| M_AB
+        end
+
+        subgraph LAYERS["<b>Ontology Layers</b>"]
+            direction LR
+            L1["<b>L1</b> Infrastructure<br/><i>Site, Device, Interface<br/>Link, VLAN, VRF, Subnet</i>"]
+            L2["<b>L2</b> Topology<br/><i>Zone, Segment<br/>FirewallPair, TopologyLayer</i>"]
+            L3["<b>L3</b> Architecture<br/><i>HLD, ARD, BUC<br/>ArchitectureVersion</i>"]
+            L4["<b>L4</b> Policy & Intent<br/><i>Intent, Policy<br/>FirewallRule, SGT</i>"]
+            L5["<b>L5</b> Config & State<br/><i>Configuration<br/>Telemetry, OpState</i>"]
+            L6["<b>L6</b> Incidents<br/><i>Alert, Incident<br/>RootCause, Remediation</i>"]
+            L7["<b>L7</b> Change Mgmt<br/><i>ChangeRequest<br/>MigrationPlan</i>"]
+            L8["<b>L8</b> Lifecycle<br/><i>LifecyclePhase<br/>Transition</i>"]
+            L9["<b>L9</b> People<br/><i>Operator, Team<br/>Ticket, SLA</i>"]
+        end
+
+        subgraph ABSTRACTION["<b>Cross-Layer Abstraction</b> <i>(MALT §3.3)</i>"]
+            direction LR
+            REL1["REALIZED_BY<br/><i>Abstract→Concrete</i>"]
+            REL2["CONTAINS<br/><i>Parent→Child</i>"]
+            REL3["AGGREGATES<br/><i>Group→Members</i>"]
+            REL4["TRAVERSES<br/><i>Logical→Physical</i>"]
+            REL5["PRECEDED_BY<br/><i>Version chain</i>"]
+        end
+
+        EVENTBUS["⚡ <b>Event Bus</b><br/><i>Neo4j CDC / Kafka / Redis</i><br/>Agent triggering on model state changes"]
+    end
+
+    %% ======================== SCHEMA GOVERNANCE ========================
+    subgraph GOVERN["<b>SCHEMA EVOLUTION & GOVERNANCE</b><br/><i>MALT §10</i>"]
+        direction LR
+        PROFILE["📜 Profiles<br/><i>Campus / Branch / Lab</i><br/>Machine-checkable constraints"]
+        SRB["👥 Schema Review Board<br/><i>Orthogonality + Overlap tests</i><br/>Stability window, deprecation"]
+        VERSIONING["🔢 Ontology Versioning<br/><i>SemVer</i><br/>Backward-compatible minors"]
+    end
+
+    %% ======================== DATAFLOW CONNECTIONS ========================
+
+    %% Human → Ingestion (outer loop entry)
+    HumanOp -->|"NL / API / Template<br/>Intent statement"| A1
+
+    %% Fulfillment chain
+    A1 -->|"Intent node<br/>status: INGESTED"| A2
+    A2 -->|"Policy nodes<br/>status: TRANSLATED"| A3
+    A3 -->|"Config nodes<br/>status: RENDERED"| A4
+    A4 -->|"MigrationPlan<br/>status: APPROVED"| A5
+
+    %% Orchestration → NetLab
+    A5 ==>|"topology.yml + config push<br/>(SSH / NETCONF / Jinja2)"| NETLAB
+
+    %% NetLab → Monitoring
+    NETLAB ==>|"Telemetry streams<br/>(gNMI, SNMP, syslog, CLI)"| A6
+
+    %% Assurance chain
+    A6 -->|"Telemetry + OpState<br/>AS-BUILT model"| A7
+    A7 -->|"ComplianceAssessment<br/>verdict ≠ COMPLIANT"| A8
+
+    %% INNER LOOP: Action → Orchestration (re-deploy)
+    A8 -->|"🔄 <b>INNER LOOP</b><br/>RE_ORCHESTRATE<br/>(auto-remediate)"| A5
+
+    %% INNER LOOP: Action → Planning (re-plan)
+    A8 -.->|"🔄 <b>INNER LOOP</b><br/>RE_PLAN<br/>(new Candidate)"| A4
+
+    %% OUTER LOOP: Action → Reporting (escalate)
+    A8 -->|"⚠️ <b>OUTER LOOP</b><br/>ESCALATE<br/>(High/Critical)"| A9
+
+    %% Reporting chain → Human
+    A9 --> A10
+    A10 -->|"Compliance reports<br/>Dashboards, Alerts"| HumanOp
+
+    %% All agents ↔ SSoT
+    A1 <-->|"R/W"| SSOT
+    A2 <-->|"R/W"| SSOT
+    A3 <-->|"R/W"| SSOT
+    A4 <-->|"R/W"| SSOT
+    A5 <-->|"R/W"| SSOT
+    A6 <-->|"R/W"| SSOT
+    A7 <-->|"R/W"| SSOT
+    A8 <-->|"R/W"| SSOT
+    A9 <-->|"R"| SSOT
+    A10 <-->|"R"| SSOT
+
+    %% Event bus triggers
+    EVENTBUS -.->|"trigger"| A2
+    EVENTBUS -.->|"trigger"| A3
+    EVENTBUS -.->|"trigger"| A4
+    EVENTBUS -.->|"trigger"| A5
+    EVENTBUS -.->|"trigger"| A7
+    EVENTBUS -.->|"trigger"| A8
+
+    %% Governance → SSoT
+    GOVERN -.->|"validates & governs"| SSOT
+
+    %% ======================== STYLING ========================
+    classDef userSpace fill:#2d3748,stroke:#4a5568,color:#fff,stroke-width:2px
+    classDef fulfill fill:#1a365d,stroke:#2b6cb0,color:#fff,stroke-width:2px
+    classDef assure fill:#742a2a,stroke:#c53030,color:#fff,stroke-width:2px
+    classDef netlab fill:#22543d,stroke:#38a169,color:#fff,stroke-width:2px
+    classDef ssot fill:#553c9a,stroke:#805ad5,color:#fff,stroke-width:2px
+    classDef model fill:#2c5282,stroke:#63b3ed,color:#fff,stroke-width:1px
+    classDef layer fill:#44337a,stroke:#9f7aea,color:#fff,stroke-width:1px
+    classDef govern fill:#744210,stroke:#d69e2e,color:#fff,stroke-width:1px
+    classDef relation fill:#4a5568,stroke:#a0aec0,color:#fff,stroke-width:1px
+
+    class HumanOp,A10,A9 userSpace
+    class A1,A2,A3,A4,A5 fulfill
+    class A6,A7,A8 assure
+    class NL_ACC,NL_AGG,NL_USF,NL_DMZ,NL_EDGE netlab
+    class EVENTBUS ssot
+    class M_WI,M_CAND,M_POR,M_DEP,M_AB model
+    class L1,L2,L3,L4,L5,L6,L7,L8,L9 layer
+    class PROFILE,SRB,VERSIONING govern
+    class REL1,REL2,REL3,REL4,REL5 relation

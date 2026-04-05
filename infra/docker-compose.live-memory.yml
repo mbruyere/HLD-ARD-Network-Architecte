@@ -1,0 +1,60 @@
+---
+# IBN — Live-Memory MCP server + MinIO S3 backend (Tier 2)
+# Run: docker compose -f infra/docker-compose.live-memory.yml up -d
+# MinIO console:   http://localhost:9001   user: minioadmin / minioadmin
+# Live-Memory MCP: http://localhost:8002
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: ibn-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: ibn-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/ibn-live-memory &&
+        echo 'Bucket ibn-live-memory ready'
+      "
+
+  live-memory:
+    image: ghcr.io/cloud-temple/live-memory:latest
+    container_name: ibn-live-memory
+    ports:
+      - "8002:8002"
+    env_file:
+      - ../.env
+    environment:
+      MCP_SERVER_PORT: 8002
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: ibn-live-memory
+      S3_REGION_NAME: us-east-1
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  minio-data:

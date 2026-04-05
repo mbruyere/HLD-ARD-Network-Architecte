@@ -1,0 +1,32 @@
+---
+# IBN — Neo4j SSoT (Tier 1)
+# Run: docker compose -f infra/docker-compose.neo4j.yml up -d
+# Browser: http://localhost:7474   user: neo4j / ibn-closed-loop-2026
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: ibn-neo4j
+    ports:
+      - "7474:7474"   # HTTP Browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/ibn-closed-loop-2026
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "ibn-closed-loop-2026",
+             "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  neo4j-data:
+  neo4j-logs:

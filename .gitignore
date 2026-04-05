@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+*.env
+!.env.example
+
+# Test / coverage
+.pytest_cache/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+coverage.xml
+
+# Editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Neo4j rendered configs (generated artefacts)
+firewall_pipeline/rendered_configs/*.conf
+firewall_pipeline/rendered_configs/*.txt
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (never committed)
+docker/volumes/

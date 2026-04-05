@@ -1,0 +1,85 @@
+{# =========================================================================== #}
+{# VyOS NAT Template — User Services Firewall                                #}
+{# =========================================================================== #}
+{# Renders source NAT (masquerade / SNAT) and destination NAT (DNAT) rules   #}
+{# from Neo4j NAT_RULE policies.                                             #}
+{#                                                                            #}
+{# Context variables (from Neo4j SSoT):                                       #}
+{#   - device     : dict — target device properties                           #}
+{#   - nat_rules  : list — NAT policy rules from SSoT                         #}
+{#   - segments   : list — population segments with subnet info               #}
+{#   - fw_transit : dict — inter-firewall transit link                        #}
+{# =========================================================================== #}
+
+{% if device.device_role == 'USER_FW' %}
+
+! ==========================================================================
+! Source NAT — User Internet Access ({{ device.hostname }})
+! ==========================================================================
+! User traffic is masqueraded behind the USF's transit interface IP
+! towards the DMZ firewall, which then routes to the internet.
+! ==========================================================================
+
+{% set nat_rule_counter = namespace(n=10) %}
+
+{# --- Dynamic SNAT rules from Neo4j --- #}
+{% for rule in nat_rules if rule.device_id == device.device_id %}
+
+set nat source rule {{ nat_rule_counter.n }} description '{{ rule.justification | default(rule.policy_name) }}'
+set nat source rule {{ nat_rule_counter.n }} outbound-interface '{{ device.transit_interface | default("eth1") }}.{{ fw_transit.vlan_id }}'
+{% if rule.source_network is not none %}
+set nat source rule {{ nat_rule_counter.n }} source address '{{ rule.source_network }}'
+{% endif %}
+set nat source rule {{ nat_rule_counter.n }} translation address 'masquerade'
+{% set nat_rule_counter.n = nat_rule_counter.n + 10 %}
+
+{% endfor %}
+
+{# --- Baseline SNAT: populations with internet access --- #}
+{# These are rendered from segment definitions as a safety net #}
+{% for seg in segments if seg.internet_access == true and seg.subnet_prefix is not none %}
+
+! Baseline SNAT: {{ seg.segment_name }} (VLAN {{ seg.vlan_id }}) → Internet
+set nat source rule {{ nat_rule_counter.n }} description 'Baseline: {{ seg.segment_name }} internet SNAT'
+set nat source rule {{ nat_rule_counter.n }} outbound-interface '{{ device.transit_interface | default("eth1") }}.{{ fw_transit.vlan_id }}'
+set nat source rule {{ nat_rule_counter.n }} source address '{{ seg.subnet_prefix }}'
+set nat source rule {{ nat_rule_counter.n }} translation address 'masquerade'
+{% set nat_rule_counter.n = nat_rule_counter.n + 10 %}
+
+{% endfor %}
+
+{% elif device.device_role == 'DMZ_FW' %}
+
+! ==========================================================================
+! Source NAT — DMZ Internet Access ({{ device.hostname }})
+! ==========================================================================
+! DMZ servers that require outbound internet access are masqueraded
+! behind the DMZFW's internet-facing interface.
+! ==========================================================================
+
+{% set nat_rule_counter = namespace(n=10) %}
+
+{# --- Dynamic SNAT rules from Neo4j --- #}
+{% for rule in nat_rules if rule.device_id == device.device_id %}
+
+set nat source rule {{ nat_rule_counter.n }} description '{{ rule.justification | default(rule.policy_name) }}'
+set nat source rule {{ nat_rule_counter.n }} outbound-interface '{{ device.internet_interface | default("eth3") }}'
+{% if rule.source_network is not none %}
+set nat source rule {{ nat_rule_counter.n }} source address '{{ rule.source_network }}'
+{% endif %}
+set nat source rule {{ nat_rule_counter.n }} translation address 'masquerade'
+{% set nat_rule_counter.n = nat_rule_counter.n + 10 %}
+
+{% endfor %}
+
+! ==========================================================================
+! Destination NAT — Publishing DMZ Inbound ({{ device.hostname }})
+! ==========================================================================
+! Inbound traffic from internet to published services is DNAT'd to
+! the actual server IPs in the Publishing DMZ (VLAN 270).
+! ==========================================================================
+
+{# DNAT rules would be generated from Neo4j PublishingService nodes #}
+{# Placeholder — populated when publishing services are defined in SSoT #}
+
+{% endif %}

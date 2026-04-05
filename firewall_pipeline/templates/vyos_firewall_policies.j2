@@ -1,0 +1,210 @@
+{# =========================================================================== #}
+{# VyOS Firewall Policy Rules Template                                        #}
+{# =========================================================================== #}
+{# Renders zone-to-zone firewall rulesets from Neo4j Policy/FirewallRule nodes #}
+{#                                                                            #}
+{# Context variables (from Neo4j SSoT):                                       #}
+{#   - device   : dict  — target device properties                            #}
+{#   - policies : list  — policies with their firewall rules                  #}
+{#   - zones    : list  — zone definitions (for zone-policy references)       #}
+{# =========================================================================== #}
+
+! ==========================================================================
+! Firewall Policy Rules — {{ device.hostname }}
+! ==========================================================================
+! Generated from Neo4j SSoT active policies applied to {{ device.device_id }}
+! ==========================================================================
+
+{# ---------- GROUP RULES BY SOURCE_ZONE → DEST_ZONE PAIRS ---------- #}
+{# VyOS organizes firewall rules into named rulesets, then assigns      #}
+{# rulesets to zone-policy from/to pairs.                               #}
+{#                                                                      #}
+{# Naming convention: FW-<SRC_ZONE>-TO-<DST_ZONE>                     #}
+
+{% set zone_pairs = {} %}
+{% for rule in policies if rule.target_device_id == device.device_id and rule.rule_id is not none %}
+{%   set src = rule.source_zone_type | default('UNKNOWN') | upper %}
+{%   set dst = rule.dest_zone_type | default('UNKNOWN') | upper %}
+{%   set pair_key = src ~ '-TO-' ~ dst %}
+{%   if pair_key not in zone_pairs %}
+{%     set _ = zone_pairs.update({pair_key: []}) %}
+{%   endif %}
+{%   set _ = zone_pairs[pair_key].append(rule) %}
+{% endfor %}
+
+{# ---------- RENDER RULESETS ---------- #}
+{% for pair_key, rules in zone_pairs.items() %}
+{% set ruleset_name = 'FW-' ~ pair_key %}
+
+! --- Ruleset: {{ ruleset_name }} ---
+! Policy: {{ rules[0].policy_name | default('N/A') }}
+{% for rule in rules | sort(attribute='rule_number') %}
+
+{# --- Rule {{ rule.rule_number }}: {{ rule.action }} {{ rule.protocol | default('any') }} --- #}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} action '{{ rule.action | lower }}'
+{% if rule.protocol is not none and rule.protocol != 'ANY' %}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} protocol '{{ rule.protocol | lower }}'
+{% endif %}
+{% if rule.source_port is not none %}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} source port '{{ rule.source_port }}'
+{% endif %}
+{% if rule.dest_port is not none %}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} destination port '{{ rule.dest_port }}'
+{% endif %}
+{% if rule.logging is not none and rule.logging %}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} log 'enable'
+{% endif %}
+set firewall name {{ ruleset_name }} rule {{ rule.rule_number }} description '{{ rule.justification | default(rule.policy_name) | truncate(80) }}'
+{% endfor %}
+
+{# Default deny at end of each ruleset #}
+set firewall name {{ ruleset_name }} default-action 'drop'
+set firewall name {{ ruleset_name }} enable-default-log
+
+{% endfor %}
+
+{# ---------- GLOBAL DEFAULT RULESETS (CATCH-ALL) ---------- #}
+{# These apply to any zone-pair not covered by an explicit policy #}
+
+! --- Global Default: Drop all unmatched traffic ---
+set firewall name FW-DEFAULT-DROP default-action 'drop'
+set firewall name FW-DEFAULT-DROP enable-default-log
+set firewall name FW-DEFAULT-DROP rule 1 action 'accept'
+set firewall name FW-DEFAULT-DROP rule 1 state established 'enable'
+set firewall name FW-DEFAULT-DROP rule 1 state related 'enable'
+set firewall name FW-DEFAULT-DROP rule 1 description 'Allow established and related sessions'
+
+set firewall name FW-DEFAULT-DROP rule 2 action 'drop'
+set firewall name FW-DEFAULT-DROP rule 2 state invalid 'enable'
+set firewall name FW-DEFAULT-DROP rule 2 log 'enable'
+set firewall name FW-DEFAULT-DROP rule 2 description 'Drop invalid state packets'
+
+{# ---------- ASSIGN RULESETS TO ZONE-POLICY ---------- #}
+{# Maps each rendered ruleset to its zone-policy from/to pair #}
+
+{% for pair_key in zone_pairs.keys() %}
+{% set parts = pair_key.split('-TO-') %}
+{% set src_zone = parts[0] | lower | replace(' ', '_') %}
+{% set dst_zone = parts[1] | lower | replace(' ', '_') %}
+{% set ruleset_name = 'FW-' ~ pair_key %}
+
+set zone-policy zone {{ dst_zone }} from {{ src_zone }} firewall name '{{ ruleset_name }}'
+{% endfor %}
+
+{# ---------- HLD MANDATORY POLICIES — HARDCODED BASELINE ---------- #}
+{# These rules implement the HLD's "least-privilege with default deny"  #}
+{# baseline. They exist as a safety net even if Neo4j policies are      #}
+{# incomplete. The SSoT-derived rules above take precedence by rule     #}
+{# number ordering.                                                     #}
+
+{% if device.device_role == 'USER_FW' %}
+
+! ==========================================================================
+! USF Baseline Policies (HLD §Security Policy Framework)
+! ==========================================================================
+
+! --- All populations → DNS DMZ (UDP/53, TCP/53) ---
+set firewall name FW-BASELINE-TO-DMZ-DNS default-action 'drop'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 10 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 10 protocol 'udp'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 10 destination port '53'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 10 description 'All populations: DNS queries (UDP)'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 20 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 20 protocol 'tcp'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 20 destination port '53'
+set firewall name FW-BASELINE-TO-DMZ-DNS rule 20 description 'All populations: DNS queries (TCP)'
+
+! --- Corporate/Admin → AD DMZ (LDAP, Kerberos, SMB) ---
+set firewall name FW-BASELINE-TO-DMZ-AD default-action 'drop'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 10 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 10 protocol 'tcp'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 10 destination port '389,636'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 10 description 'Corporate/Admin: LDAP/LDAPS'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 20 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 20 protocol 'tcp'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 20 destination port '88'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 20 description 'Corporate/Admin: Kerberos (TCP)'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 30 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 30 protocol 'udp'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 30 destination port '88'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 30 description 'Corporate/Admin: Kerberos (UDP)'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 40 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 40 protocol 'tcp'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 40 destination port '445'
+set firewall name FW-BASELINE-TO-DMZ-AD rule 40 description 'Corporate/Admin: SMB'
+
+! --- Corporate → File Services DMZ (SMB) ---
+set firewall name FW-BASELINE-TO-DMZ-FILE default-action 'drop'
+set firewall name FW-BASELINE-TO-DMZ-FILE rule 10 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-FILE rule 10 protocol 'tcp'
+set firewall name FW-BASELINE-TO-DMZ-FILE rule 10 destination port '445,139'
+set firewall name FW-BASELINE-TO-DMZ-FILE rule 10 description 'Corporate: SMB/CIFS file access'
+
+! --- Voice → PBX DMZ (SIP/RTP) ---
+set firewall name FW-BASELINE-TO-DMZ-PBX default-action 'drop'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 10 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 10 protocol 'udp'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 10 destination port '5060-5061'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 10 description 'Voice: SIP signaling'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 20 action 'accept'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 20 protocol 'udp'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 20 destination port '16384-32767'
+set firewall name FW-BASELINE-TO-DMZ-PBX rule 20 description 'Voice: RTP/RTCP media'
+
+! --- Guest isolation: deny all internal access ---
+set firewall name FW-GUEST-DENY-INTERNAL default-action 'drop'
+set firewall name FW-GUEST-DENY-INTERNAL enable-default-log
+set firewall name FW-GUEST-DENY-INTERNAL rule 1 action 'accept'
+set firewall name FW-GUEST-DENY-INTERNAL rule 1 state established 'enable'
+set firewall name FW-GUEST-DENY-INTERNAL rule 1 state related 'enable'
+set firewall name FW-GUEST-DENY-INTERNAL rule 1 description 'Allow return traffic only'
+
+{% elif device.device_role == 'DMZ_FW' %}
+
+! ==========================================================================
+! DMZFW Baseline Policies (HLD §DMZ Security Posture)
+! ==========================================================================
+
+! --- DMZ DNS → Internet (recursive queries) ---
+set firewall name FW-BASELINE-DNS-TO-INET default-action 'drop'
+set firewall name FW-BASELINE-DNS-TO-INET rule 10 action 'accept'
+set firewall name FW-BASELINE-DNS-TO-INET rule 10 protocol 'udp'
+set firewall name FW-BASELINE-DNS-TO-INET rule 10 destination port '53'
+set firewall name FW-BASELINE-DNS-TO-INET rule 10 description 'DNS DMZ: Recursive queries to internet (UDP)'
+set firewall name FW-BASELINE-DNS-TO-INET rule 20 action 'accept'
+set firewall name FW-BASELINE-DNS-TO-INET rule 20 protocol 'tcp'
+set firewall name FW-BASELINE-DNS-TO-INET rule 20 destination port '53'
+set firewall name FW-BASELINE-DNS-TO-INET rule 20 description 'DNS DMZ: Recursive queries to internet (TCP)'
+
+! --- DMZ AD → Internet (Azure AD sync, updates) ---
+set firewall name FW-BASELINE-AD-TO-INET default-action 'drop'
+set firewall name FW-BASELINE-AD-TO-INET rule 10 action 'accept'
+set firewall name FW-BASELINE-AD-TO-INET rule 10 protocol 'tcp'
+set firewall name FW-BASELINE-AD-TO-INET rule 10 destination port '443,80'
+set firewall name FW-BASELINE-AD-TO-INET rule 10 description 'AD DMZ: Azure AD sync and updates'
+
+! --- Internet → Publishing DMZ (web, email, VPN) ---
+set firewall name FW-BASELINE-INET-TO-PUBLISH default-action 'drop'
+set firewall name FW-BASELINE-INET-TO-PUBLISH enable-default-log
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 10 action 'accept'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 10 protocol 'tcp'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 10 destination port '443,80'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 10 description 'Internet: HTTPS/HTTP to web services'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 20 action 'accept'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 20 protocol 'tcp'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 20 destination port '25'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 20 description 'Internet: SMTP inbound'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 30 action 'accept'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 30 protocol 'udp'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 30 destination port '443'
+set firewall name FW-BASELINE-INET-TO-PUBLISH rule 30 description 'Internet: VPN (IKEv2/UDP)'
+
+! --- Zero Trust between DMZ zones ---
+set firewall name FW-DMZ-INTER-ZONE-DENY default-action 'drop'
+set firewall name FW-DMZ-INTER-ZONE-DENY enable-default-log
+set firewall name FW-DMZ-INTER-ZONE-DENY rule 1 action 'accept'
+set firewall name FW-DMZ-INTER-ZONE-DENY rule 1 state established 'enable'
+set firewall name FW-DMZ-INTER-ZONE-DENY rule 1 state related 'enable'
+set firewall name FW-DMZ-INTER-ZONE-DENY rule 1 description 'Allow established/related only'
+
+{% endif %}
