@@ -9,6 +9,7 @@ Responsibilities:
   5. Update Intent status to ORCHESTRATED on full success
   6. Emit live_notes per device result and on rollback
   7. Publish deployment.complete / deployment.failed events
+  8. Post-deployment verification: compare running config vs expected
 
 Entry point::
 
@@ -65,14 +66,69 @@ def _default_ssh_executor(device_id: str, config: str) -> dict:
     return {"status": "ok", "device": device_id}
 
 
+def _default_ssh_verifier(device_id: str, expected_snippets: list[str]) -> dict:
+    """
+    Post-deployment verification via SSH: fetch running config and check expected
+    snippets are present.
+
+    Returns {"verified": True, "device": device_id} or raises on mismatch.
+    """
+    import paramiko  # lazy import
+
+    host = device_id
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(host, username="vyos", timeout=10)
+
+    stdin, stdout, stderr = ssh.exec_command("show configuration commands")
+    running = stdout.read().decode()
+    ssh.close()
+
+    missing = [s for s in expected_snippets if s not in running]
+    if missing:
+        raise RuntimeError(
+            f"Verification failed on {device_id}: "
+            f"{len(missing)} expected snippet(s) not found: {missing[:3]}"
+        )
+
+    return {"verified": True, "device": device_id, "checked": len(expected_snippets)}
+
+
+def _extract_verify_snippets(config: str, max_snippets: int = 10) -> list[str]:
+    """
+    Extract key lines from a VyOS config block to use as verification probes.
+
+    We take the first word of each ``set`` line (the command prefix) as a
+    lightweight presence check — enough to confirm the config was accepted.
+    Blank lines and comments are skipped.
+    """
+    snippets = []
+    for line in config.splitlines():
+        line = line.strip()
+        if line.startswith("set ") and len(line) > 8:
+            # Take up to the first 60 chars as the probe
+            snippets.append(line[:60])
+            if len(snippets) >= max_snippets:
+                break
+    return snippets
+
+
 class Agent5Orchestration(BaseAgent):
 
     AGENT_ID   = "A5"
     AGENT_NAME = "Orchestration"
 
-    def __init__(self, neo4j, live_memory, event_bus=None, ssh_executor: Optional[Callable] = None):
+    def __init__(
+        self,
+        neo4j,
+        live_memory,
+        event_bus=None,
+        ssh_executor: Optional[Callable] = None,
+        ssh_verifier: Optional[Callable] = None,
+    ):
         super().__init__(neo4j, live_memory, event_bus)
         self._ssh = ssh_executor or _default_ssh_executor
+        self._verify = ssh_verifier or _default_ssh_verifier
 
     # ------------------------------------------------------------------
     # Main logic
@@ -159,6 +215,34 @@ class Agent5Orchestration(BaseAgent):
                 "rolled_back": rollback_devices,
             }
 
+        # ── Post-deployment verification ───────────────────────────────
+        verify_results: list[dict] = []
+        for step in succeeded:
+            device_id = step["deviceId"]
+            # Build verification snippets from the deployed config lines
+            snippets = _extract_verify_snippets(step.get("content", ""))
+            if not snippets:
+                verify_results.append({"device": device_id, "verified": True, "skipped": True})
+                continue
+            try:
+                vr = self._verify(device_id, snippets)
+                verify_results.append(vr)
+                self._note(
+                    deploy_space,
+                    f"Device {device_id}: post-deploy verification PASSED ({vr.get('checked', 0)} checks)",
+                    category="verification-result",
+                )
+            except Exception as exc:
+                verify_results.append({"verified": False, "device": device_id, "error": str(exc)})
+                self._note(
+                    deploy_space,
+                    f"Device {device_id}: post-deploy verification WARNING — {exc}",
+                    category="verification-result",
+                )
+                self._log.warning("Verification warning for %s: %s", device_id, exc)
+
+        all_verified = all(r.get("verified", False) for r in verify_results)
+
         # ── Full success ───────────────────────────────────────────────
         self._neo4j.update_intent_status(intent_id, "ORCHESTRATED")
 
@@ -166,12 +250,15 @@ class Agent5Orchestration(BaseAgent):
             "intentId":   intent_id,
             "devices":    [s["deviceId"] for s in succeeded],
             "modelState": ModelState.DEPLOYED.value,
+            "verified":   all_verified,
         })
 
         return {
-            "id":      intent_id,
-            "status":  "ORCHESTRATED",
-            "devices": [s["deviceId"] for s in succeeded],
+            "id":           intent_id,
+            "status":       "ORCHESTRATED",
+            "devices":      [s["deviceId"] for s in succeeded],
+            "verified":     all_verified,
+            "verification": verify_results,
         }
 
     # ------------------------------------------------------------------

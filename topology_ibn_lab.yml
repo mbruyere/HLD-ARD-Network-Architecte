@@ -1,0 +1,156 @@
+# =============================================================================
+# NetLab Topology — IBN Lab (ARM64 / containerlab)
+# Derived from: Enterprise Campus HLD
+#
+# Phase 1 focus: VyOS firewalls only.
+# Access/aggregation represented as Linux stubs — no VLAN trunking needed
+# (Linux doesn't support vlan module in clab mode).
+#
+# Devices:
+#   usf1, usf2    — User Services Firewall (VyOS, active-active HA)
+#   dmzfw1, dmzfw2 — DMZ/Internet Firewall (VyOS, active-active HA)
+#   host_employee — Linux stub on Employee VLAN (10.100.0.0/24)
+#   host_guest    — Linux stub on Guest VLAN (10.100.40.0/24)
+#   host_iot      — Linux stub on IoT VLAN (10.100.50.0/24)
+#   srv_dns       — Linux stub in DNS DMZ (10.200.0.0/24)
+#   jumphost      — OOB management host
+#   internet      — Internet stub (ISP egress)
+# =============================================================================
+
+provider: clab
+
+defaults:
+  device: linux
+
+# ---------------------------------------------------------------------------
+# Addressing
+# ---------------------------------------------------------------------------
+addressing:
+  mgmt:
+    ipv4: 192.168.100.0/24
+    prefix: 24
+  loopback:
+    ipv4: 10.255.0.0/24
+    prefix: 32
+  campus_pool:
+    ipv4: 10.100.0.0/16
+    prefix: 24
+  dmz_pool:
+    ipv4: 10.200.0.0/16
+    prefix: 24
+  p2p:
+    ipv4: 10.255.255.0/24
+    prefix: 30
+
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+groups:
+  # VyOS firewall pairs
+  usf_pair:
+    members: [usf1, usf2]
+    device: vyos
+    module: [vlan]
+
+  dmzfw_pair:
+    members: [dmzfw1, dmzfw2]
+    device: vyos
+    module: [vlan]
+
+  # Linux stub hosts
+  user_hosts:
+    members: [host_employee, host_guest, host_iot]
+    device: linux
+
+  dmz_stubs:
+    members: [srv_dns, srv_ad]
+    device: linux
+
+# ---------------------------------------------------------------------------
+# VLANs — defined on VyOS nodes only
+# ---------------------------------------------------------------------------
+vlans:
+  employee:
+    id: 100
+    prefix: 10.100.0.0/24
+  guest:
+    id: 140
+    prefix: 10.100.40.0/24
+  iot:
+    id: 150
+    prefix: 10.100.50.0/24
+  dmz_dns:
+    id: 200
+    prefix: 10.200.0.0/24
+  dmz_ad:
+    id: 210
+    prefix: 10.200.10.0/24
+  fw_transit:
+    id: 300
+    prefix: 10.255.254.0/28
+
+# ---------------------------------------------------------------------------
+# Nodes
+# ---------------------------------------------------------------------------
+nodes:
+  usf1:
+  usf2:
+  dmzfw1:
+  dmzfw2:
+  host_employee:
+  host_guest:
+  host_iot:
+  srv_dns:
+  srv_ad:
+  jumphost:
+  internet:
+
+# ---------------------------------------------------------------------------
+# Links
+# ---------------------------------------------------------------------------
+links:
+  # --- User hosts → USF1 (access VLAN) ---
+  - host_employee:
+    usf1:
+      vlan.access: employee
+
+  - host_guest:
+    usf1:
+      vlan.access: guest
+
+  - host_iot:
+    usf1:
+      vlan.access: iot
+
+  # --- DMZ servers → DMZFW1 ---
+  - srv_dns:
+    dmzfw1:
+      vlan.access: dmz_dns
+
+  - srv_ad:
+    dmzfw1:
+      vlan.access: dmz_ad
+
+  # --- USF ↔ DMZFW transit (VLAN 300) ---
+  - usf1:
+    dmzfw1:
+      vlan.access: fw_transit
+
+  - usf2:
+    dmzfw2:
+      vlan.access: fw_transit
+
+  # --- HA heartbeat links ---
+  - usf1:
+    usf2:
+
+  - dmzfw1:
+    dmzfw2:
+
+  # --- Internet stub ---
+  - dmzfw1:
+    internet:
+
+  # --- OOB management ---
+  - jumphost:
+    usf1:
