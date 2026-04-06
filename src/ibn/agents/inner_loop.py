@@ -26,7 +26,9 @@ from typing import Optional
 
 from ibn.core.base_agent import EventBus, get_default_bus, get_event_bus
 from ibn.core.live_memory_client import LiveMemoryClient
+from ibn.core.graph_memory_client import GraphMemoryClient
 from ibn.core.neo4j_client import Neo4jClient
+from ibn.core.consolidation_manager import ConsolidationManager
 from ibn.agents.agent6_monitoring import Agent6Monitoring
 from ibn.agents.agent7_assessment import Agent7Assessment
 from ibn.agents.agent8_action import Agent8Action
@@ -45,6 +47,7 @@ class InnerLoop:
         event_bus: Optional[EventBus] = None,
         assess_space: str = "ibn-loop-inner",
         outer_space: str = "ibn-loop-outer",
+        graph_memory: Optional[GraphMemoryClient] = None,
     ):
         self._bus = event_bus or get_event_bus()
         self._assess_space = assess_space
@@ -54,6 +57,17 @@ class InnerLoop:
         self.agent6 = Agent6Monitoring(neo4j, live_memory, self._bus)
         self.agent7 = Agent7Assessment(neo4j, live_memory, self._bus)
         self.agent8 = Agent8Action(neo4j, live_memory, agent5=agent5, event_bus=self._bus)
+
+        # Tier 3 consolidation — wires Live-Memory → Graph-Memory bridge
+        _gm = graph_memory or GraphMemoryClient.from_env()
+        self.consolidation = ConsolidationManager(
+            live_memory=live_memory,
+            graph_memory=_gm,
+            event_bus=self._bus,
+            note_threshold=20,
+            sweep_interval=3600,
+            push_to_graph=True,
+        )
 
         self._subscribed = False
 
@@ -66,16 +80,20 @@ class InnerLoop:
         self._bus.subscribe("telemetry.collected", self._on_telemetry)
         # A7 assessment.complete → A8 action
         self._bus.subscribe("assessment.complete", self._on_assessment)
-        # A8 remediation.complete → log
+        # A8 remediation.complete → consolidation trigger
         self._bus.subscribe("remediation.complete", self._on_remediation)
         self._bus.subscribe("escalation.required", self._on_escalation)
+
+        # Start consolidation manager (subscribes to model.state.transition
+        # and inner.loop.complete on the same bus)
+        self.consolidation.start()
 
         self._subscribed = True
         logger.info("Inner loop started — subscribed to event bus")
 
     def stop(self) -> None:
         """Unsubscribe and stop the loop."""
-        # EventBus doesn't have unsubscribe — just mark as stopped
+        self.consolidation.stop()
         self._subscribed = False
         logger.info("Inner loop stopped")
 
@@ -128,12 +146,21 @@ class InnerLoop:
                 )
                 action_results.append(action_result)
 
-        return {
+        cycle_result = {
             "telemetry": telemetry_result,
             "assessments": assessment_result,
             "actions": action_results,
             "cycle_complete": True,
         }
+
+        # Emit inner loop complete — triggers ConsolidationManager to
+        # consolidate ibn-loop-inner and push to Graph-Memory
+        self._bus.publish("inner.loop.complete", {
+            "site_id": site_id,
+            "actions_taken": len(action_results),
+        })
+
+        return cycle_result
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -171,7 +198,14 @@ class InnerLoop:
                                  assessment.get("assessmentId"), exc)
 
     def _on_remediation(self, event: dict) -> None:
-        logger.info("Remediation complete: %s", event.get("payload", {}))
+        payload = event.get("payload", {})
+        logger.info("Remediation complete: %s", payload)
+        # Emit inner.loop.complete so ConsolidationManager consolidates
+        # ibn-loop-inner after each event-driven remediation cycle
+        self._bus.publish("inner.loop.complete", {
+            "trigger": "remediation",
+            "intent_id": payload.get("intentId"),
+        })
 
     def _on_escalation(self, event: dict) -> None:
         logger.warning("Escalation required: %s", event.get("payload", {}))
