@@ -1,0 +1,126 @@
+{
+  "ansible_network_os": "vyos",
+  "ansible_connection": "docker",
+  "ansible_user": "vyos",
+  "ansible_ssh_pass": "vyos",
+  "docker_shell": "su - vyos",
+  "netlab_ready": [
+    "ansible"
+  ],
+  "features": {
+    "initial": {
+      "ipv4": {
+        "unnumbered": true
+      },
+      "ipv6": {
+        "lla": true
+      }
+    },
+    "bfd": {},
+    "bgp": {
+      "activate_af": true,
+      "ipv6_lla": true,
+      "local_as": true,
+      "vrf_local_as": true,
+      "import": [
+        "ospf",
+        "ripv2",
+        "connected",
+        "static",
+        "vrf"
+      ],
+      "default_originate": true,
+      "allowas_in": true,
+      "as_override": true,
+      "password": true,
+      "remove_private_as": true
+    },
+    "evpn": {
+      "asymmetrical_irb": true,
+      "irb": true
+    },
+    "gateway": {
+      "protocol": [
+        "vrrp"
+      ]
+    },
+    "isis": {
+      "circuit_type": true
+    },
+    "lag": {
+      "passive": false
+    },
+    "mpls": {
+      "ldp": true,
+      "vpn": {
+        "ipv4": true
+      }
+    },
+    "ospf": {
+      "unnumbered": true,
+      "import": [
+        "bgp",
+        "ripv2",
+        "connected",
+        "static",
+        "vrf"
+      ],
+      "default": true
+    },
+    "ripv2": {
+      "ipv4": true,
+      "ipv6": true,
+      "passive": true
+    },
+    "routing": {
+      "policy": {
+        "set": {
+          "locpref": true,
+          "med": true,
+          "prepend": true,
+          "community": {
+            "standard": true,
+            "large": true,
+            "extended": true,
+            "append": true
+          }
+        },
+        "delete": {
+          "community": false
+        },
+        "match": {
+          "prefix": true,
+          "nexthop": true,
+          "aspath": true,
+          "community": {
+            "standard": true
+          }
+        }
+      },
+      "prefix": true,
+      "aspath": true,
+      "community": {
+        "standard": true
+      },
+      "static": {
+        "vrf": true,
+        "inter_vrf": true,
+        "discard": true
+      }
+    },
+    "vlan": {
+      "model": "l3-switch",
+      "svi_interface_name": "br0.{vlan}",
+      "subif_name": "{ifname}.{vlan.access_id}",
+      "native_routed": true
+    },
+    "vrf": {
+      "ospfv2": true,
+      "ospfv3": true,
+      "bgp": true
+    },
+    "vxlan": {
+      "vtep6": true
+    }
+  }
+}

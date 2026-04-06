@@ -1,0 +1,131 @@
+{
+  "interfaces": [
+    {
+      "ipv4": "10.200.10.9/24",
+      "linkindex": 5,
+      "type": "lan",
+      "bridge": "HLDARDNetw_5",
+      "name": "srv_ad -> [dmzfw1]",
+      "ifindex": 1,
+      "ifname": "eth1",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ifname": "br0.210",
+          "node": "dmzfw1",
+          "ipv4": "10.200.10.3/24",
+          "vlan": {
+            "mode": "irb",
+            "name": "dmz_ad"
+          }
+        }
+      ],
+      "role": "stub",
+      "gateway": {
+        "ipv4": "10.200.10.3/24"
+      }
+    }
+  ],
+  "clab": {
+    "kind": "linux",
+    "config_templates": [
+      {
+        "source": "initial",
+        "target": "",
+        "mode": "ns"
+      },
+      {
+        "source": "routing",
+        "target": "",
+        "mode": "ns"
+      },
+      {
+        "source": "hosts",
+        "target": "/etc/hosts",
+        "mode": "shared"
+      }
+    ],
+    "binds": [
+      {
+        "target": "/etc/hosts",
+        "source": "node_files/-shared-hosts",
+        "mode": "ro"
+      }
+    ]
+  },
+  "box": "python:3.13-alpine",
+  "role": "host",
+  "mtu": 1500,
+  "_node_config": {
+    "initial": ":ns",
+    "routing": ":ns"
+  },
+  "af": {
+    "ipv4": true
+  },
+  "mgmt": {
+    "ifname": "eth0",
+    "mac": "ca:fe:00:09:00:00",
+    "ipv4": "192.168.100.109"
+  },
+  "hostname": "clab-HLDARDNetwor-srv_ad",
+  "routing": {
+    "static": [
+      {
+        "ipv4": "172.16.0.0/16",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      },
+      {
+        "ipv4": "10.255.0.0/24",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      },
+      {
+        "ipv4": "10.255.255.0/24",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      },
+      {
+        "ipv4": "10.2.0.0/24",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      },
+      {
+        "ipv4": "10.100.0.0/16",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      },
+      {
+        "ipv4": "10.200.0.0/16",
+        "nexthop": {
+          "ipv4": "10.200.10.3",
+          "intf": "eth1",
+          "idx": 0
+        }
+      }
+    ]
+  },
+  "module": [
+    "routing"
+  ],
+  "netlab_ansible_skip_module": [
+    "initial",
+    "routing"
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "interfaces": [
+    {
+      "ipv4": "10.255.254.2/28",
+      "linkindex": 7,
+      "type": "lan",
+      "bridge": "HLDARDNetw_7",
+      "name": "usf2 -> [usf1,dmzfw1,dmzfw2]",
+      "ifindex": 1,
+      "ifname": "eth1",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.255.254.1/28",
+          "ifname": "eth4",
+          "node": "usf1"
+        },
+        {
+          "ifname": "br0.300",
+          "node": "dmzfw1",
+          "ipv4": "10.255.254.3/28",
+          "vlan": {
+            "mode": "irb",
+            "name": "fw_transit"
+          }
+        },
+        {
+          "ifname": "br0.300",
+          "node": "dmzfw2",
+          "ipv4": "10.255.254.4/28",
+          "vlan": {
+            "mode": "irb",
+            "name": "fw_transit"
+          }
+        }
+      ]
+    },
+    {
+      "ipv4": "10.255.255.2/30",
+      "linkindex": 8,
+      "type": "p2p",
+      "name": "usf2 -> usf1",
+      "ifindex": 2,
+      "ifname": "eth2",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.255.255.1/30",
+          "ifname": "eth5",
+          "node": "usf1"
+        }
+      ]
+    }
+  ],
+  "module": [
+    "vlan"
+  ],
+  "clab": {
+    "kind": "linux",
+    "binds": [
+      {
+        "source": "/lib/modules",
+        "target": "/lib/modules"
+      }
+    ]
+  },
+  "box": "ghcr.io/sysoleg/vyos-container",
+  "mtu": 1500,
+  "af": {
+    "ipv4": true
+  },
+  "mgmt": {
+    "ifname": "eth0",
+    "mac": "ca:fe:00:02:00:00",
+    "ipv4": "192.168.100.102"
+  },
+  "hostname": "clab-HLDARDNetwor-usf2",
+  "loopback": {
+    "type": "loopback",
+    "neighbors": [],
+    "virtual_interface": true,
+    "ifindex": 0,
+    "ifname": "dum0",
+    "ipv4": "10.255.0.2/32"
+  }
+}

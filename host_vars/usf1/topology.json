@@ -1,0 +1,262 @@
+{
+  "interfaces": [
+    {
+      "vlan": {
+        "access": "employee",
+        "access_id": 100
+      },
+      "linkindex": 1,
+      "type": "lan",
+      "bridge": "HLDARDNetw_1",
+      "ifindex": 1,
+      "ifname": "eth1",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.100.0.5/24",
+          "ifname": "eth1",
+          "node": "host_employee"
+        }
+      ],
+      "name": "[Access VLAN employee] usf1 -> host_employee"
+    },
+    {
+      "vlan": {
+        "access": "guest",
+        "access_id": 140
+      },
+      "linkindex": 2,
+      "type": "lan",
+      "bridge": "HLDARDNetw_2",
+      "ifindex": 2,
+      "ifname": "eth2",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.100.40.6/24",
+          "ifname": "eth1",
+          "node": "host_guest"
+        }
+      ],
+      "name": "[Access VLAN guest] usf1 -> host_guest"
+    },
+    {
+      "vlan": {
+        "access": "iot",
+        "access_id": 150
+      },
+      "linkindex": 3,
+      "type": "lan",
+      "bridge": "HLDARDNetw_3",
+      "ifindex": 3,
+      "ifname": "eth3",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.100.50.7/24",
+          "ifname": "eth1",
+          "node": "host_iot"
+        }
+      ],
+      "name": "[Access VLAN iot] usf1 -> host_iot"
+    },
+    {
+      "ipv4": "10.255.254.1/28",
+      "linkindex": 6,
+      "type": "lan",
+      "bridge": "HLDARDNetw_6",
+      "name": "usf1 -> [dmzfw1,usf2,dmzfw2]",
+      "ifindex": 4,
+      "ifname": "eth4",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ifname": "br0.300",
+          "node": "dmzfw1",
+          "ipv4": "10.255.254.3/28",
+          "vlan": {
+            "mode": "irb",
+            "name": "fw_transit"
+          }
+        },
+        {
+          "ipv4": "10.255.254.2/28",
+          "ifname": "eth1",
+          "node": "usf2"
+        },
+        {
+          "ifname": "br0.300",
+          "node": "dmzfw2",
+          "ipv4": "10.255.254.4/28",
+          "vlan": {
+            "mode": "irb",
+            "name": "fw_transit"
+          }
+        }
+      ]
+    },
+    {
+      "ipv4": "10.255.255.1/30",
+      "linkindex": 8,
+      "type": "p2p",
+      "name": "usf1 -> usf2",
+      "ifindex": 5,
+      "ifname": "eth5",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.255.255.2/30",
+          "ifname": "eth2",
+          "node": "usf2"
+        }
+      ]
+    },
+    {
+      "ipv4": "172.16.1.1/24",
+      "linkindex": 11,
+      "role": "stub",
+      "type": "lan",
+      "bridge": "HLDARDNetw_11",
+      "name": "usf1 -> jumphost",
+      "ifindex": 6,
+      "ifname": "eth6",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "172.16.1.10/24",
+          "ifname": "eth1",
+          "node": "jumphost"
+        }
+      ]
+    },
+    {
+      "ipv4": "10.100.0.1/24",
+      "vlan": {
+        "mode": "irb",
+        "name": "employee"
+      },
+      "type": "svi",
+      "ifindex": 40000,
+      "ifname": "br0.100",
+      "name": "VLAN employee (100) -> [host_employee]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.100.0.5/24",
+          "ifname": "eth1",
+          "node": "host_employee"
+        }
+      ],
+      "bridge_group": 1,
+      "mtu": 1500,
+      "role": "stub"
+    },
+    {
+      "ipv4": "10.100.40.1/24",
+      "vlan": {
+        "mode": "irb",
+        "name": "guest"
+      },
+      "type": "svi",
+      "ifindex": 40001,
+      "ifname": "br0.140",
+      "name": "VLAN guest (140) -> [host_guest]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.100.40.6/24",
+          "ifname": "eth1",
+          "node": "host_guest"
+        }
+      ],
+      "bridge_group": 2,
+      "mtu": 1500,
+      "role": "stub"
+    },
+    {
+      "ipv4": "10.100.50.1/24",
+      "vlan": {
+        "mode": "irb",
+        "name": "iot"
+      },
+      "type": "svi",
+      "ifindex": 40002,
+      "ifname": "br0.150",
+      "name": "VLAN iot (150) -> [host_iot]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.100.50.7/24",
+          "ifname": "eth1",
+          "node": "host_iot"
+        }
+      ],
+      "bridge_group": 3,
+      "mtu": 1500,
+      "role": "stub"
+    }
+  ],
+  "module": [
+    "vlan"
+  ],
+  "clab": {
+    "kind": "linux",
+    "binds": [
+      {
+        "source": "/lib/modules",
+        "target": "/lib/modules"
+      }
+    ]
+  },
+  "box": "ghcr.io/sysoleg/vyos-container",
+  "mtu": 1500,
+  "af": {
+    "ipv4": true
+  },
+  "mgmt": {
+    "ifname": "eth0",
+    "mac": "ca:fe:00:01:00:00",
+    "ipv4": "192.168.100.101"
+  },
+  "hostname": "clab-HLDARDNetwor-usf1",
+  "loopback": {
+    "type": "loopback",
+    "neighbors": [],
+    "virtual_interface": true,
+    "ifindex": 0,
+    "ifname": "dum0",
+    "ipv4": "10.255.0.1/32"
+  },
+  "vlans": {
+    "employee": {
+      "id": 100,
+      "prefix": {
+        "ipv4": "10.100.0.0/24",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 1
+    },
+    "guest": {
+      "id": 140,
+      "prefix": {
+        "ipv4": "10.100.40.0/24",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 2
+    },
+    "iot": {
+      "id": 150,
+      "prefix": {
+        "ipv4": "10.100.50.0/24",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 3
+    }
+  },
+  "vlan": {
+    "max_bridge_group": 3
+  }
+}

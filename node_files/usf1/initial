@@ -1,0 +1,111 @@
+set system host-name 'usf1'
+
+
+set interfaces bridge br0 description 'Global Switch Bridge'
+set interfaces bridge br0 enable-vlan
+
+set interfaces bridge br0 vif 100
+set interfaces bridge br0 vif 140
+set interfaces bridge br0 vif 150
+
+set interfaces dummy dum0 address 10.255.0.1/32
+
+
+
+set interfaces ethernet eth1 description '[Access VLAN employee] usf1 -> host_employee'
+
+set interfaces ethernet eth1 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth2 description '[Access VLAN guest] usf1 -> host_guest'
+
+set interfaces ethernet eth2 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth3 description '[Access VLAN iot] usf1 -> host_iot'
+
+set interfaces ethernet eth3 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth4 description 'usf1 -> [dmzfw1,usf2,dmzfw2]'
+
+set interfaces ethernet eth4 mtu 1500
+
+set interfaces ethernet eth4 address 10.255.254.1/28
+
+
+
+
+
+set interfaces ethernet eth5 description 'usf1 -> usf2'
+
+set interfaces ethernet eth5 mtu 1500
+
+set interfaces ethernet eth5 address 10.255.255.1/30
+
+
+
+
+
+set interfaces ethernet eth6 description 'usf1 -> jumphost [stub]'
+
+set interfaces ethernet eth6 mtu 1500
+
+set interfaces ethernet eth6 address 172.16.1.1/24
+
+
+
+
+
+set interfaces bridge br0 vif 100 description 'VLAN employee (100) -> [host_employee] [stub]'
+
+set interfaces bridge br0 vif 100 mtu 1500
+
+set interfaces bridge br0 vif 100 address 10.100.0.1/24
+
+
+
+
+
+set interfaces bridge br0 vif 140 description 'VLAN guest (140) -> [host_guest] [stub]'
+
+set interfaces bridge br0 vif 140 mtu 1500
+
+set interfaces bridge br0 vif 140 address 10.100.40.1/24
+
+
+
+
+
+set interfaces bridge br0 vif 150 description 'VLAN iot (150) -> [host_iot] [stub]'
+
+set interfaces bridge br0 vif 150 mtu 1500
+
+set interfaces bridge br0 vif 150 address 10.100.50.1/24
+
+
+
+
+set service lldp interface all
+>/dev/null 2>/dev/null set service lldp interface eth0 disable
+>/dev/null 2>/dev/null set service lldp interface eth0 mode disable
+
+
+set service ssh
+
+commit
+
+# Restart FRR to pick up the new hostname
+sudo service frr restart

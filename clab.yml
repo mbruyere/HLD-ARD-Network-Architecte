@@ -1,0 +1,144 @@
+name: HLDARDNetwor
+prefix: "clab"
+
+mgmt:
+  network: netlab_mgmt
+  ipv4-subnet: 192.168.100.0/24
+  # Note: 'start' not validated
+topology:
+  nodes:
+    usf1:
+      mgmt-ipv4: 192.168.100.101
+      kind: linux
+      restart-policy: 'no'
+      image: ghcr.io/sysoleg/vyos-container
+      runtime: docker
+      group: usf_pair
+      binds:
+      - /lib/modules:/lib/modules
+    usf2:
+      mgmt-ipv4: 192.168.100.102
+      kind: linux
+      restart-policy: 'no'
+      image: ghcr.io/sysoleg/vyos-container
+      runtime: docker
+      group: usf_pair
+      binds:
+      - /lib/modules:/lib/modules
+    dmzfw1:
+      mgmt-ipv4: 192.168.100.103
+      kind: linux
+      restart-policy: 'no'
+      image: ghcr.io/sysoleg/vyos-container
+      runtime: docker
+      group: dmzfw_pair
+      binds:
+      - /lib/modules:/lib/modules
+    dmzfw2:
+      mgmt-ipv4: 192.168.100.104
+      kind: linux
+      restart-policy: 'no'
+      image: ghcr.io/sysoleg/vyos-container
+      runtime: docker
+      group: dmzfw_pair
+      binds:
+      - /lib/modules:/lib/modules
+    host_employee:
+      mgmt-ipv4: 192.168.100.105
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: user_hosts,netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    host_guest:
+      mgmt-ipv4: 192.168.100.106
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: user_hosts,netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    host_iot:
+      mgmt-ipv4: 192.168.100.107
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: user_hosts,netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    srv_dns:
+      mgmt-ipv4: 192.168.100.108
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: dmz_stubs,netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    srv_ad:
+      mgmt-ipv4: 192.168.100.109
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: dmz_stubs,netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    jumphost:
+      mgmt-ipv4: 192.168.100.110
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+    internet:
+      mgmt-ipv4: 192.168.100.111
+      kind: linux
+      restart-policy: 'no'
+      image: python:3.13-alpine
+      runtime: docker
+      group: netlab_no_reload
+      binds:
+      - node_files/-shared-hosts:/etc/hosts:ro
+
+
+  links:
+  - endpoints:
+    - "usf1:eth1"
+    - "host_employee:eth1"
+  - endpoints:
+    - "usf1:eth2"
+    - "host_guest:eth1"
+  - endpoints:
+    - "usf1:eth3"
+    - "host_iot:eth1"
+  - endpoints:
+    - "dmzfw1:eth1"
+    - "srv_dns:eth1"
+  - endpoints:
+    - "dmzfw1:eth2"
+    - "srv_ad:eth1"
+  - endpoints:
+    - "usf1:eth4"
+    - "dmzfw1:eth3"
+  - endpoints:
+    - "usf2:eth1"
+    - "dmzfw2:eth1"
+  - endpoints:
+    - "usf1:eth5"
+    - "usf2:eth2"
+  - endpoints:
+    - "dmzfw1:eth4"
+    - "dmzfw2:eth2"
+  - endpoints:
+    - "dmzfw1:eth5"
+    - "internet:eth1"
+  - endpoints:
+    - "usf1:eth6"
+    - "jumphost:eth1"

@@ -1,0 +1,3 @@
+set interfaces bridge br0 member interface eth1 native-vlan 200
+set interfaces bridge br0 member interface eth2 native-vlan 210
+set interfaces bridge br0 member interface eth3 native-vlan 300

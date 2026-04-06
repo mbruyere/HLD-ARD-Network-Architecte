@@ -1,0 +1,356 @@
+{
+  "netlab_provider": "clab",
+  "netlab_name": "HLDARDNetwor",
+  "hosts": {
+    "dmzfw1": {
+      "loopback": [
+        "10.255.0.3"
+      ],
+      "ipv4": [
+        "10.255.0.3",
+        "10.255.255.5",
+        "172.16.0.3",
+        "10.200.0.3",
+        "10.200.10.3",
+        "10.255.254.3"
+      ]
+    },
+    "dmzfw2": {
+      "loopback": [
+        "10.255.0.4"
+      ],
+      "ipv4": [
+        "10.255.0.4",
+        "10.255.255.6",
+        "10.255.254.4"
+      ]
+    },
+    "host_employee": {
+      "ipv4": [
+        "10.100.0.5"
+      ]
+    },
+    "host_guest": {
+      "ipv4": [
+        "10.100.40.6"
+      ]
+    },
+    "host_iot": {
+      "ipv4": [
+        "10.100.50.7"
+      ]
+    },
+    "internet": {
+      "ipv4": [
+        "172.16.0.11"
+      ]
+    },
+    "jumphost": {
+      "ipv4": [
+        "172.16.1.10"
+      ]
+    },
+    "srv_ad": {
+      "ipv4": [
+        "10.200.10.9"
+      ]
+    },
+    "srv_dns": {
+      "ipv4": [
+        "10.200.0.8"
+      ]
+    },
+    "usf1": {
+      "loopback": [
+        "10.255.0.1"
+      ],
+      "ipv4": [
+        "10.255.0.1",
+        "10.255.254.1",
+        "10.255.255.1",
+        "172.16.1.1",
+        "10.100.0.1",
+        "10.100.40.1",
+        "10.100.50.1"
+      ]
+    },
+    "usf2": {
+      "loopback": [
+        "10.255.0.2"
+      ],
+      "ipv4": [
+        "10.255.0.2",
+        "10.255.254.2",
+        "10.255.255.2"
+      ]
+    }
+  },
+  "netlab_hosts": {
+    "dmzfw1": {
+      "loopback": [
+        "10.255.0.3"
+      ],
+      "ipv4": [
+        "10.255.0.3",
+        "10.255.255.5",
+        "172.16.0.3",
+        "10.200.0.3",
+        "10.200.10.3",
+        "10.255.254.3"
+      ]
+    },
+    "dmzfw2": {
+      "loopback": [
+        "10.255.0.4"
+      ],
+      "ipv4": [
+        "10.255.0.4",
+        "10.255.255.6",
+        "10.255.254.4"
+      ]
+    },
+    "host_employee": {
+      "ipv4": [
+        "10.100.0.5"
+      ]
+    },
+    "host_guest": {
+      "ipv4": [
+        "10.100.40.6"
+      ]
+    },
+    "host_iot": {
+      "ipv4": [
+        "10.100.50.7"
+      ]
+    },
+    "internet": {
+      "ipv4": [
+        "172.16.0.11"
+      ]
+    },
+    "jumphost": {
+      "ipv4": [
+        "172.16.1.10"
+      ]
+    },
+    "srv_ad": {
+      "ipv4": [
+        "10.200.10.9"
+      ]
+    },
+    "srv_dns": {
+      "ipv4": [
+        "10.200.0.8"
+      ]
+    },
+    "usf1": {
+      "loopback": [
+        "10.255.0.1"
+      ],
+      "ipv4": [
+        "10.255.0.1",
+        "10.255.254.1",
+        "10.255.255.1",
+        "172.16.1.1",
+        "10.100.0.1",
+        "10.100.40.1",
+        "10.100.50.1"
+      ]
+    },
+    "usf2": {
+      "loopback": [
+        "10.255.0.2"
+      ],
+      "ipv4": [
+        "10.255.0.2",
+        "10.255.254.2",
+        "10.255.255.2"
+      ]
+    }
+  },
+  "paths_validate": [
+    "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/validate"
+  ],
+  "paths_plugin": [
+    "/home/ubuntu/HLD_ARD_Network_Architecte",
+    "/home/ubuntu/.netlab",
+    "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/extra"
+  ],
+  "paths_custom": {
+    "dirs": [
+      "/home/ubuntu/HLD_ARD_Network_Architecte",
+      "/home/ubuntu/.netlab",
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/extra"
+    ],
+    "files": [
+      "{{custom_config}}/{{inventory_hostname}}.{{netlab_device_type}}-{{node_provider}}.j2",
+      "{{custom_config}}/{{inventory_hostname}}.{{netlab_device_type}}.j2",
+      "{{custom_config}}/{{inventory_hostname}}.j2",
+      "{{custom_config}}/{{inventory_hostname}}.cfg",
+      "{{custom_config}}/{{netlab_device_type}}-{{node_provider}}.j2",
+      "{{custom_config}}/{{netlab_device_type}}.j2",
+      "{{custom_config}}/{{ansible_network_os}}-{{node_provider}}.j2",
+      "{{custom_config}}/{{ansible_network_os}}.j2",
+      "{{custom_config}}.{{inventory_hostname}}.{{netlab_device_type}}.j2",
+      "{{custom_config}}.{{inventory_hostname}}.{{ansible_network_os}}.j2",
+      "{{custom_config}}.{{inventory_hostname}}.j2",
+      "{{custom_config}}.{{netlab_device_type}}.j2",
+      "{{custom_config}}.{{ansible_network_os}}.j2",
+      "{{custom_config}}.j2"
+    ],
+    "tasks": [
+      "{{ custom_config }}/deploy-{{ inventory_hostname }}.yml",
+      "{{ custom_config }}/deploy.{{ netlab_device_type }}-{{ node_provider }}.yml",
+      "{{ custom_config }}/deploy.{{ netlab_device_type }}.yml",
+      "{{ custom_config }}/deploy.{{ ansible_network_os }}-{{ node_provider }}.yml",
+      "{{ custom_config }}/deploy.{{ ansible_network_os }}.yml",
+      "{{ custom_config }}/deploy.yml"
+    ],
+    "f_files": [
+      "{custom_config}/{inventory_hostname}.{netlab_device_type}-{node_provider}.j2",
+      "{custom_config}/{inventory_hostname}.{netlab_device_type}.j2",
+      "{custom_config}/{inventory_hostname}.j2",
+      "{custom_config}/{inventory_hostname}.cfg",
+      "{custom_config}/{netlab_device_type}-{node_provider}.j2",
+      "{custom_config}/{netlab_device_type}.j2",
+      "{custom_config}/{ansible_network_os}-{node_provider}.j2",
+      "{custom_config}/{ansible_network_os}.j2",
+      "{custom_config}.{inventory_hostname}.{netlab_device_type}.j2",
+      "{custom_config}.{inventory_hostname}.{ansible_network_os}.j2",
+      "{custom_config}.{inventory_hostname}.j2",
+      "{custom_config}.{netlab_device_type}.j2",
+      "{custom_config}.{ansible_network_os}.j2",
+      "{custom_config}.j2"
+    ],
+    "f_tasks": [
+      "{ custom_config }/deploy-{ inventory_hostname }.yml",
+      "{ custom_config }/deploy.{ netlab_device_type }-{ node_provider }.yml",
+      "{ custom_config }/deploy.{ netlab_device_type }.yml",
+      "{ custom_config }/deploy.{ ansible_network_os }-{ node_provider }.yml",
+      "{ custom_config }/deploy.{ ansible_network_os }.yml",
+      "{ custom_config }/deploy.yml"
+    ]
+  },
+  "paths_deploy": {
+    "dirs": [
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/ansible/tasks"
+    ],
+    "tasks_generic": [
+      "deploy-config/{{ netlab_device_type }}-{{ node_provider }}.yml",
+      "deploy-config/{{ netlab_device_type }}.yml",
+      "deploy-config/{{ ansible_network_os }}-{{ node_provider }}.yml",
+      "deploy-config/{{ ansible_network_os }}.yml"
+    ],
+    "files": [
+      "{{ netlab_device_type }}/{{ config_module }}-{{ node_provider }}.yml",
+      "{{ netlab_device_type }}/{{ config_module }}.yml",
+      "deploy-config/{{ netlab_device_type }}-{{ node_provider }}.yml",
+      "deploy-config/{{ netlab_device_type }}.yml",
+      "{{ ansible_network_os }}/{{ config_module }}-{{ node_provider }}.yml",
+      "{{ ansible_network_os }}/{{ config_module }}.yml",
+      "deploy-config/{{ ansible_network_os }}-{{ node_provider }}.yml",
+      "deploy-config/{{ ansible_network_os }}.yml"
+    ],
+    "f_tasks_generic": [
+      "deploy-config/{ netlab_device_type }-{ node_provider }.yml",
+      "deploy-config/{ netlab_device_type }.yml",
+      "deploy-config/{ ansible_network_os }-{ node_provider }.yml",
+      "deploy-config/{ ansible_network_os }.yml"
+    ],
+    "f_files": [
+      "{ netlab_device_type }/{ config_module }-{ node_provider }.yml",
+      "{ netlab_device_type }/{ config_module }.yml",
+      "deploy-config/{ netlab_device_type }-{ node_provider }.yml",
+      "deploy-config/{ netlab_device_type }.yml",
+      "{ ansible_network_os }/{ config_module }-{ node_provider }.yml",
+      "{ ansible_network_os }/{ config_module }.yml",
+      "deploy-config/{ ansible_network_os }-{ node_provider }.yml",
+      "deploy-config/{ ansible_network_os }.yml"
+    ]
+  },
+  "paths_templates": {
+    "dirs": [
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/daemons",
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/ansible/templates"
+    ]
+  },
+  "paths_t_files": {
+    "files": [
+      "{{config_module}}/{{netlab_device_type}}-{{node_provider}}.j2",
+      "{{config_module}}/{{netlab_device_type}}.j2",
+      "{{config_module}}.{{netlab_device_type}}.j2",
+      "{{config_module}}/{{ansible_network_os}}-{{node_provider}}.j2",
+      "{{config_module}}/{{ansible_network_os}}.j2",
+      "{{config_module}}.{{ansible_network_os}}.j2",
+      "{{netlab_device_type}}/{{config_module}}.j2"
+    ],
+    "f_files": [
+      "{config_module}/{netlab_device_type}-{node_provider}.j2",
+      "{config_module}/{netlab_device_type}.j2",
+      "{config_module}.{netlab_device_type}.j2",
+      "{config_module}/{ansible_network_os}-{node_provider}.j2",
+      "{config_module}/{ansible_network_os}.j2",
+      "{config_module}.{ansible_network_os}.j2",
+      "{netlab_device_type}/{config_module}.j2"
+    ]
+  },
+  "paths_ready": {
+    "dirs": [
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/ansible/tasks/readiness-check"
+    ],
+    "files": [
+      "{{netlab_device_type}}-{{node_provider}}.yml",
+      "{{netlab_device_type}}.yml",
+      "{{ansible_network_os}}-{{node_provider}}.yml",
+      "{{ansible_network_os}}.yml"
+    ],
+    "f_files": [
+      "{netlab_device_type}-{node_provider}.yml",
+      "{netlab_device_type}.yml",
+      "{ansible_network_os}-{node_provider}.yml",
+      "{ansible_network_os}.yml"
+    ]
+  },
+  "paths_collect": {
+    "dirs": [
+      "/home/ubuntu/HLD_ARD_Network_Architecte/.venv/lib/python3.14/site-packages/netsim/ansible/tasks/fetch-config"
+    ]
+  },
+  "pools": {
+    "lan": {
+      "ipv4": "172.16.0.0/16",
+      "prefix": 24
+    },
+    "loopback": {
+      "ipv4": "10.255.0.0/24",
+      "prefix": 32
+    },
+    "p2p": {
+      "ipv4": "10.255.255.0/24",
+      "prefix": 30
+    },
+    "router_id": {
+      "ipv4": "10.0.0.0/24",
+      "prefix": 32
+    },
+    "mgmt": {
+      "ipv4": "192.168.100.0/24",
+      "start": 100,
+      "mac": "CA-FE-00-00-00-00",
+      "prefix": 24
+    },
+    "vrf_loopback": {
+      "ipv4": "10.2.0.0/24",
+      "prefix": 32
+    },
+    "campus_pool": {
+      "ipv4": "10.100.0.0/16",
+      "prefix": 24
+    },
+    "dmz_pool": {
+      "ipv4": "10.200.0.0/16",
+      "prefix": 24
+    }
+  }
+}

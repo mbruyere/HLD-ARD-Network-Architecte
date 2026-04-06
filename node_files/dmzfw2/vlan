@@ -1,0 +1,1 @@
+set interfaces bridge br0 member interface eth1 native-vlan 300

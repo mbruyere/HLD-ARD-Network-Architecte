@@ -1,0 +1,101 @@
+set system host-name 'dmzfw1'
+
+
+set interfaces bridge br0 description 'Global Switch Bridge'
+set interfaces bridge br0 enable-vlan
+
+set interfaces bridge br0 vif 200
+set interfaces bridge br0 vif 210
+set interfaces bridge br0 vif 300
+
+set interfaces dummy dum0 address 10.255.0.3/32
+
+
+
+set interfaces ethernet eth1 description '[Access VLAN dmz_dns] dmzfw1 -> srv_dns'
+
+set interfaces ethernet eth1 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth2 description '[Access VLAN dmz_ad] dmzfw1 -> srv_ad'
+
+set interfaces ethernet eth2 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth3 description '[Access VLAN fw_transit] dmzfw1 -> usf1'
+
+set interfaces ethernet eth3 mtu 1500
+
+
+
+
+
+
+set interfaces ethernet eth4 description 'dmzfw1 -> dmzfw2'
+
+set interfaces ethernet eth4 mtu 1500
+
+set interfaces ethernet eth4 address 10.255.255.5/30
+
+
+
+
+
+set interfaces ethernet eth5 description 'dmzfw1 -> internet [stub]'
+
+set interfaces ethernet eth5 mtu 1500
+
+set interfaces ethernet eth5 address 172.16.0.3/24
+
+
+
+
+
+set interfaces bridge br0 vif 200 description 'VLAN dmz_dns (200) -> [srv_dns] [stub]'
+
+set interfaces bridge br0 vif 200 mtu 1500
+
+set interfaces bridge br0 vif 200 address 10.200.0.3/24
+
+
+
+
+
+set interfaces bridge br0 vif 210 description 'VLAN dmz_ad (210) -> [srv_ad] [stub]'
+
+set interfaces bridge br0 vif 210 mtu 1500
+
+set interfaces bridge br0 vif 210 address 10.200.10.3/24
+
+
+
+
+
+set interfaces bridge br0 vif 300 description 'VLAN fw_transit (300) -> [usf1,usf2,dmzfw2]'
+
+set interfaces bridge br0 vif 300 mtu 1500
+
+set interfaces bridge br0 vif 300 address 10.255.254.3/28
+
+
+
+
+set service lldp interface all
+>/dev/null 2>/dev/null set service lldp interface eth0 disable
+>/dev/null 2>/dev/null set service lldp interface eth0 mode disable
+
+
+set service ssh
+
+commit
+
+# Restart FRR to pick up the new hostname
+sudo service frr restart

@@ -1,0 +1,240 @@
+{
+  "interfaces": [
+    {
+      "vlan": {
+        "access": "dmz_dns",
+        "access_id": 200
+      },
+      "linkindex": 4,
+      "type": "lan",
+      "bridge": "HLDARDNetw_4",
+      "ifindex": 1,
+      "ifname": "eth1",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.200.0.8/24",
+          "ifname": "eth1",
+          "node": "srv_dns"
+        }
+      ],
+      "name": "[Access VLAN dmz_dns] dmzfw1 -> srv_dns"
+    },
+    {
+      "vlan": {
+        "access": "dmz_ad",
+        "access_id": 210
+      },
+      "linkindex": 5,
+      "type": "lan",
+      "bridge": "HLDARDNetw_5",
+      "ifindex": 2,
+      "ifname": "eth2",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.200.10.9/24",
+          "ifname": "eth1",
+          "node": "srv_ad"
+        }
+      ],
+      "name": "[Access VLAN dmz_ad] dmzfw1 -> srv_ad"
+    },
+    {
+      "vlan": {
+        "access": "fw_transit",
+        "access_id": 300
+      },
+      "linkindex": 6,
+      "type": "lan",
+      "bridge": "HLDARDNetw_6",
+      "ifindex": 3,
+      "ifname": "eth3",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.255.254.1/28",
+          "ifname": "eth4",
+          "node": "usf1"
+        }
+      ],
+      "name": "[Access VLAN fw_transit] dmzfw1 -> usf1"
+    },
+    {
+      "ipv4": "10.255.255.5/30",
+      "linkindex": 9,
+      "type": "p2p",
+      "name": "dmzfw1 -> dmzfw2",
+      "ifindex": 4,
+      "ifname": "eth4",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "10.255.255.6/30",
+          "ifname": "eth2",
+          "node": "dmzfw2"
+        }
+      ]
+    },
+    {
+      "ipv4": "172.16.0.3/24",
+      "linkindex": 10,
+      "role": "stub",
+      "type": "lan",
+      "bridge": "HLDARDNetw_10",
+      "name": "dmzfw1 -> internet",
+      "ifindex": 5,
+      "ifname": "eth5",
+      "mtu": 1500,
+      "neighbors": [
+        {
+          "ipv4": "172.16.0.11/24",
+          "ifname": "eth1",
+          "node": "internet"
+        }
+      ]
+    },
+    {
+      "ipv4": "10.200.0.3/24",
+      "vlan": {
+        "mode": "irb",
+        "name": "dmz_dns"
+      },
+      "type": "svi",
+      "ifindex": 40000,
+      "ifname": "br0.200",
+      "name": "VLAN dmz_dns (200) -> [srv_dns]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.200.0.8/24",
+          "ifname": "eth1",
+          "node": "srv_dns"
+        }
+      ],
+      "bridge_group": 1,
+      "mtu": 1500,
+      "role": "stub"
+    },
+    {
+      "ipv4": "10.200.10.3/24",
+      "vlan": {
+        "mode": "irb",
+        "name": "dmz_ad"
+      },
+      "type": "svi",
+      "ifindex": 40001,
+      "ifname": "br0.210",
+      "name": "VLAN dmz_ad (210) -> [srv_ad]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.200.10.9/24",
+          "ifname": "eth1",
+          "node": "srv_ad"
+        }
+      ],
+      "bridge_group": 2,
+      "mtu": 1500,
+      "role": "stub"
+    },
+    {
+      "ipv4": "10.255.254.3/28",
+      "vlan": {
+        "mode": "irb",
+        "name": "fw_transit"
+      },
+      "type": "svi",
+      "ifindex": 40002,
+      "ifname": "br0.300",
+      "name": "VLAN fw_transit (300) -> [usf1,usf2,dmzfw2]",
+      "virtual_interface": true,
+      "neighbors": [
+        {
+          "ipv4": "10.255.254.1/28",
+          "ifname": "eth4",
+          "node": "usf1"
+        },
+        {
+          "ipv4": "10.255.254.2/28",
+          "ifname": "eth1",
+          "node": "usf2"
+        },
+        {
+          "ifname": "br0.300",
+          "node": "dmzfw2",
+          "ipv4": "10.255.254.4/28",
+          "vlan": {
+            "mode": "irb",
+            "name": "fw_transit"
+          }
+        }
+      ],
+      "bridge_group": 3,
+      "mtu": 1500
+    }
+  ],
+  "module": [
+    "vlan"
+  ],
+  "clab": {
+    "kind": "linux",
+    "binds": [
+      {
+        "source": "/lib/modules",
+        "target": "/lib/modules"
+      }
+    ]
+  },
+  "box": "ghcr.io/sysoleg/vyos-container",
+  "mtu": 1500,
+  "af": {
+    "ipv4": true
+  },
+  "mgmt": {
+    "ifname": "eth0",
+    "mac": "ca:fe:00:03:00:00",
+    "ipv4": "192.168.100.103"
+  },
+  "hostname": "clab-HLDARDNetwor-dmzfw1",
+  "loopback": {
+    "type": "loopback",
+    "neighbors": [],
+    "virtual_interface": true,
+    "ifindex": 0,
+    "ifname": "dum0",
+    "ipv4": "10.255.0.3/32"
+  },
+  "vlans": {
+    "dmz_dns": {
+      "id": 200,
+      "prefix": {
+        "ipv4": "10.200.0.0/24",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 1
+    },
+    "dmz_ad": {
+      "id": 210,
+      "prefix": {
+        "ipv4": "10.200.10.0/24",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 2
+    },
+    "fw_transit": {
+      "id": 300,
+      "prefix": {
+        "ipv4": "10.255.254.0/28",
+        "allocation": "id_based"
+      },
+      "mode": "irb",
+      "bridge_group": 3
+    }
+  },
+  "vlan": {
+    "max_bridge_group": 3
+  }
+}

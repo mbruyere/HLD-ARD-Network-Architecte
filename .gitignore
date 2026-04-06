@@ -43,3 +43,11 @@ logs/
 # Docker volumes (never committed)
 docker/volumes/
 tests/unit/sed*
+
+# NetLab / containerlab runtime artefacts
+netlab.lock
+netlab.snapshot.pickle
+clab-*/
+
+# Leftover sed temp files at repo root
+sed[0-9A-Za-z]*

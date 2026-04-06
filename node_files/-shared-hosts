@@ -1,0 +1,36 @@
+#
+# Created by netlab (containerlab Linux host)
+#
+127.0.0.1	localhost
+::1	localhost ip6-localhost ip6-loopback
+fe00::0	ip6-localnet
+ff00::0	ip6-mcastprefix
+ff02::1	ip6-allnodes
+ff02::2	ip6-allrouters
+#
+10.255.0.3 dmzfw1
+10.255.255.5 eth4.dmzfw1
+172.16.0.3 eth5.dmzfw1
+10.200.0.3 br0.200.dmzfw1
+10.200.10.3 br0.210.dmzfw1
+10.255.254.3 br0.300.dmzfw1
+10.255.0.4 dmzfw2
+10.255.255.6 eth2.dmzfw2
+10.255.254.4 br0.300.dmzfw2
+10.100.0.5 host-employee eth1.host_employee
+10.100.40.6 host-guest eth1.host_guest
+10.100.50.7 host-iot eth1.host_iot
+172.16.0.11 internet eth1.internet
+172.16.1.10 jumphost eth1.jumphost
+10.200.10.9 srv-ad eth1.srv_ad
+10.200.0.8 srv-dns eth1.srv_dns
+10.255.0.1 usf1
+10.255.254.1 eth4.usf1
+10.255.255.1 eth5.usf1
+172.16.1.1 eth6.usf1
+10.100.0.1 br0.100.usf1
+10.100.40.1 br0.140.usf1
+10.100.50.1 br0.150.usf1
+10.255.0.2 usf2
+10.255.254.2 eth1.usf2
+10.255.255.2 eth2.usf2

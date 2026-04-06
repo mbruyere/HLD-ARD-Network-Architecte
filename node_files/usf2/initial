@@ -1,0 +1,37 @@
+set system host-name 'usf2'
+
+
+set interfaces dummy dum0 address 10.255.0.2/32
+
+
+
+set interfaces ethernet eth1 description 'usf2 -> [usf1,dmzfw1,dmzfw2]'
+
+set interfaces ethernet eth1 mtu 1500
+
+set interfaces ethernet eth1 address 10.255.254.2/28
+
+
+
+
+
+set interfaces ethernet eth2 description 'usf2 -> usf1'
+
+set interfaces ethernet eth2 mtu 1500
+
+set interfaces ethernet eth2 address 10.255.255.2/30
+
+
+
+
+set service lldp interface all
+>/dev/null 2>/dev/null set service lldp interface eth0 disable
+>/dev/null 2>/dev/null set service lldp interface eth0 mode disable
+
+
+set service ssh
+
+commit
+
+# Restart FRR to pick up the new hostname
+sudo service frr restart
