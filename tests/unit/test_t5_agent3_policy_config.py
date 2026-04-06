@@ -204,9 +204,9 @@ set high-availability vrrp group {{ vrrp.group }} preempt {{ vrrp.preempt }}
 class TestConfigNodeCreation:
     """T5.3 — Agent 3 creates Configuration nodes in Neo4j L5."""
 
-    def test_t5_3_1_creates_configuration_node(self, neo4j_driver):
+    def test_t5_3_1_creates_configuration_node(self, mock_neo4j):
         """T5.3.1 — Configuration node created with correct properties."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: $cid, deviceId: $did, "
                 "content: $content, format: 'vyos-set', version: 1, "
@@ -218,13 +218,13 @@ class TestConfigNodeCreation:
                 }
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         cfg_nodes = [n for n in nodes if n.get("_label") == "Configuration"]
         assert len(cfg_nodes) >= 1
 
-    def test_t5_3_2_links_configuration_to_policy(self, neo4j_driver):
+    def test_t5_3_2_links_configuration_to_policy(self, mock_neo4j):
         """T5.3.2 — Configuration linked to Policy via RENDERS."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-001', modelState: 'CANDIDATE'})"
                 "-[:RENDERS]->"
@@ -232,12 +232,12 @@ class TestConfigNodeCreation:
                 {}
             )
 
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("RENDERS" in q["query"] for q in queries)
 
-    def test_t5_3_3_links_configuration_to_device(self, neo4j_driver):
+    def test_t5_3_3_links_configuration_to_device(self, mock_neo4j):
         """T5.3.3 — Configuration linked to target Device via TARGETS."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-001', modelState: 'CANDIDATE'})"
                 "-[:TARGETS]->"
@@ -245,7 +245,7 @@ class TestConfigNodeCreation:
                 {}
             )
 
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("TARGETS" in q["query"] for q in queries)
 
     def test_t5_3_4_emits_live_note(self, live_memory):

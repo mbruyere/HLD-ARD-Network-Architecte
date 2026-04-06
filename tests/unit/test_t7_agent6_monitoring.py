@@ -127,9 +127,9 @@ O>*  10.1.200.0/24 [110/20] via 10.1.255.2, eth1
 class TestAsBuiltWrites:
     """T7.2 — Monitoring agent writes As-Built state to Neo4j."""
 
-    def test_t7_2_1_creates_telemetry_nodes(self, neo4j_driver):
+    def test_t7_2_1_creates_telemetry_nodes(self, mock_neo4j):
         """T7.2.1 — Creates Telemetry nodes in L5 with AS_BUILT modelState."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Telemetry {timestamp: $ts, metric: 'interface_state', "
                 "value: 'up', deviceId: $did, interfaceName: 'eth0', "
@@ -137,16 +137,16 @@ class TestAsBuiltWrites:
                 {"ts": datetime.now(timezone.utc).isoformat(), "did": "usf-fw-01"}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         telemetry = [n for n in nodes if n.get("_label") == "Telemetry"]
         assert len(telemetry) >= 1
         # modelState is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("modelState: 'AS_BUILT'" in q["query"] for q in queries)
 
-    def test_t7_2_2_updates_device_oper_state(self, neo4j_driver):
+    def test_t7_2_2_updates_device_oper_state(self, mock_neo4j):
         """T7.2.2 — Updates OperationalState on Device node."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:OperationalState {deviceId: $did, operState: 'running', "
                 "cpuUtilization: 23.5, memoryUtilization: 45.2, "
@@ -154,17 +154,17 @@ class TestAsBuiltWrites:
                 {"did": "usf-fw-01", "ts": datetime.now(timezone.utc).isoformat()}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         ops = [n for n in nodes if n.get("_label") == "OperationalState"]
         assert len(ops) >= 1
 
-    def test_t7_2_4_creates_alert_on_threshold_breach(self, neo4j_driver):
+    def test_t7_2_4_creates_alert_on_threshold_breach(self, mock_neo4j):
         """T7.2.4 — Alert created when metric exceeds threshold."""
         cpu_value = 92.3
         threshold = 90.0
 
         if cpu_value > threshold:
-            with neo4j_driver.session() as session:
+            with mock_neo4j.session() as session:
                 session.run(
                     "CREATE (:Alert {alertId: $aid, severity: 'MEDIUM', "
                     "metric: 'cpu_utilization', value: $val, threshold: $thr, "
@@ -172,25 +172,25 @@ class TestAsBuiltWrites:
                     {"aid": "ALT-001", "val": cpu_value, "thr": threshold, "did": "usf-fw-01"}
                 )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         alerts = [n for n in nodes if n.get("_label") == "Alert"]
         assert len(alerts) >= 1
         # severity is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("severity: 'MEDIUM'" in q["query"] for q in queries)
 
-    def test_t7_2_5_all_as_built_nodes_have_correct_state(self, neo4j_driver):
+    def test_t7_2_5_all_as_built_nodes_have_correct_state(self, mock_neo4j):
         """T7.2.5 — All telemetry/state nodes carry modelState AS_BUILT."""
         labels = ["Telemetry", "OperationalState", "Alert"]
         for label in labels:
-            with neo4j_driver.session() as session:
+            with mock_neo4j.session() as session:
                 session.run(
                     f"CREATE (:{label} {{testId: 'test', modelState: 'AS_BUILT'}})", {}
                 )
 
         # modelState is a literal in the queries, not a parameter.
         # Verify all queries include it.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert all("modelState: 'AS_BUILT'" in q["query"] for q in queries[-3:])
 
 

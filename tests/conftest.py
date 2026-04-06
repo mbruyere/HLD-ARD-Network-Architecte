@@ -171,6 +171,12 @@ class MockNeo4jDriver:
 
 
 @pytest.fixture
+def mock_neo4j():
+    """Always returns a MockNeo4jDriver — for unit tests that rely on mock-only API."""
+    yield MockNeo4jDriver()
+
+
+@pytest.fixture
 def neo4j_driver():
     """Provides a mock Neo4j driver (or real if NEO4J_URI is set)."""
     if USE_REAL_NEO4J:
@@ -481,7 +487,8 @@ AGENT_NAMES = [
 
 
 @pytest.fixture
-def seeded_neo4j(neo4j_driver):
+def seeded_neo4j(mock_neo4j):
+    neo4j_driver = mock_neo4j
     """Neo4j driver pre-seeded with HLD baseline data (POR state)."""
     driver = neo4j_driver
     # Seed site

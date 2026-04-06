@@ -140,11 +140,11 @@ class TestAutonomyBoundaries:
 class TestAuditTrail:
     """T14.3 — Every agent action recorded, full traceability."""
 
-    def test_t14_3_1_agent_execution_recorded(self, neo4j_driver):
+    def test_t14_3_1_agent_execution_recorded(self, mock_neo4j):
         """T14.3.1 — Every agent action creates AgentExecution node."""
         agents = ["A1", "A3", "A5", "A6", "A7", "A8"]
         for agent_id in agents:
-            with neo4j_driver.session() as session:
+            with mock_neo4j.session() as session:
                 session.run(
                     "CREATE (:AgentExecution {agentId: $aid, action: $act, "
                     "timestamp: $ts, modelState: 'POR'})",
@@ -152,17 +152,17 @@ class TestAuditTrail:
                      "ts": datetime.now(timezone.utc).isoformat()}
                 )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         exec_nodes = [n for n in nodes if n.get("_label") == "AgentExecution"]
         # Mock stores parameters under their $param keys (aid, act, ts)
         agent_ids = {n.get("aid") for n in exec_nodes}
         for expected in agents:
             assert expected in agent_ids, f"Agent {expected} missing from audit trail"
 
-    def test_t14_3_2_intent_to_device_traceability(self, neo4j_driver):
+    def test_t14_3_2_intent_to_device_traceability(self, mock_neo4j):
         """T14.3.2 — Full traversal: Intent → Policy → Config → Deploy → Device."""
         # Create the chain
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: 'INT-001', modelState: 'POR'})"
                 "-[:IMPLEMENTED_BY]->(:Policy {policyId: 'POL-001', modelState: 'POR'})",
@@ -179,7 +179,7 @@ class TestAuditTrail:
                 {}
             )
 
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         # Verify all relationship types were created
         rel_types = {"IMPLEMENTED_BY", "RENDERED_AS", "DEPLOYED_ON"}
         found = {r for q in queries for r in rel_types if r in q["query"]}

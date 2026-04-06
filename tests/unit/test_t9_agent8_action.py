@@ -120,9 +120,9 @@ class TestRemediationExecution:
         assert result["status"] == "ok"
         assert netlab.devices["usf-fw-01"].running_config == por_config
 
-    def test_t9_3_2_creates_remediation_node(self, neo4j_driver):
+    def test_t9_3_2_creates_remediation_node(self, mock_neo4j):
         """T9.3.2 — Remediation node created in L6 with RESOLVES relationship."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Remediation {remediationId: $rid, action: 'AUTO_REMEDIATE', "
                 "timestamp: $ts, success: true, modelState: 'AS_BUILT'})"
@@ -130,28 +130,28 @@ class TestRemediationExecution:
                 "(:Incident {incidentId: 'INC-001', modelState: 'AS_BUILT'})",
                 {"rid": "REM-001", "ts": datetime.now(timezone.utc).isoformat()}
             )
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         rem = [n for n in nodes if n.get("_label") == "Remediation"]
         assert len(rem) >= 1
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("RESOLVES" in q["query"] for q in queries)
 
-    def test_t9_3_3_records_success(self, neo4j_driver):
+    def test_t9_3_3_records_success(self, mock_neo4j):
         """T9.3.3 — Remediation marked success after re-verification."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Remediation {remediationId: 'REM-001', success: true, modelState: 'AS_BUILT'})",
                 {}
             )
         # success is a literal in the query, not a parameter.
         # Verify the Remediation node was created instead.
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         rem = [n for n in nodes if n.get("_label") == "Remediation"]
         assert len(rem) >= 1
 
-    def test_t9_3_4_records_failure_and_escalates(self, neo4j_driver):
+    def test_t9_3_4_records_failure_and_escalates(self, mock_neo4j):
         """T9.3.4 — Failed remediation recorded, escalation triggered."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Remediation {remediationId: 'REM-002', success: false, "
                 "escalatedTo: 'HIGH', modelState: 'AS_BUILT'})",
@@ -163,7 +163,7 @@ class TestRemediationExecution:
                 "modelState: 'POR'})",
                 {}
             )
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         rem = [n for n in nodes if n.get("_label") == "Remediation"]
         tickets = [n for n in nodes if n.get("_label") == "Ticket"]
         assert len(rem) >= 1

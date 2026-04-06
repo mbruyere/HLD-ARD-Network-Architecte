@@ -17,10 +17,10 @@ from datetime import datetime, timezone
 class TestFulfillmentPath:
     """T12.1 — End-to-end fulfillment: Intent → Config → Deploy → Observe."""
 
-    def test_t12_1_1_full_fulfillment_path(self, neo4j_driver, live_memory, netlab):
+    def test_t12_1_1_full_fulfillment_path(self, mock_neo4j, live_memory, netlab):
         """T12.1.1 — Intent flows through SSoT → Config → Deploy → Observe."""
         # Step 1: Ingest intent (Agent 1)
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: 'INT-E2E-001', "
                 "statement: 'Guest VLAN 140 may only reach Internet', "
@@ -33,7 +33,7 @@ class TestFulfillmentPath:
         # Step 2: Render config (Agent 3)
         config = "set firewall name GUEST-TO-INTERNET default-action accept\n" \
                  "set firewall name GUEST-TO-USER default-action drop"
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-E2E-001', "
                 "deviceId: 'usf-fw-01', content: $cfg, "
@@ -45,7 +45,7 @@ class TestFulfillmentPath:
         result = netlab.deploy_config("usf-fw-01", config)
         assert result["status"] == "ok"
 
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:DeploymentEvent {eventId: 'DEP-E2E-001', "
                 "status: 'DEPLOYED', targetDeviceId: 'usf-fw-01', "
@@ -56,7 +56,7 @@ class TestFulfillmentPath:
         running = netlab.devices["usf-fw-01"].exec_command("show configuration")
         assert running == config
 
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Telemetry {deviceId: 'usf-fw-01', "
                 "metric: 'running_config_hash', value: $hash, "
@@ -66,7 +66,7 @@ class TestFulfillmentPath:
 
         # Verify all model states exist
         # modelState is a literal in queries, not a parameter, so verify by checking queries instead.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("CANDIDATE" in q["query"] for q in queries)
         assert any("DEPLOYED" in q["query"] for q in queries)
         assert any("AS_BUILT" in q["query"] for q in queries)
@@ -77,7 +77,7 @@ class TestFulfillmentPath:
 class TestAssurancePath:
     """T12.2 — Drift injection → detection → assessment → action."""
 
-    def test_t12_2_1_detect_and_assess_drift(self, neo4j_driver, live_memory, netlab):
+    def test_t12_2_1_detect_and_assess_drift(self, mock_neo4j, live_memory, netlab):
         """T12.2.1 — Injected drift is detected and assessed as NON_COMPLIANT."""
         # Setup: deploy known-good config
         good_config = "set firewall name GUEST-TO-INTERNET default-action accept\n" \
@@ -102,7 +102,7 @@ class TestAssurancePath:
         assert verdict == "NON_COMPLIANT"
 
         # Record in Neo4j
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:ComplianceAssessment {assessmentId: 'CA-E2E-001', "
                 "intentId: 'INT-E2E-001', verdict: 'NON_COMPLIANT', "
@@ -116,7 +116,7 @@ class TestAssurancePath:
             "ibn-loop-inner", f"DRIFT: {missing}", "drift-detection"
         )
 
-    def test_t12_2_2_auto_remediate_low_severity(self, neo4j_driver, live_memory, netlab):
+    def test_t12_2_2_auto_remediate_low_severity(self, mock_neo4j, live_memory, netlab):
         """T12.2.2 — LOW severity auto-remediates via config re-push."""
         # Setup: known-good and drifted state
         good_config = "set firewall name GUEST-TO-INTERNET default-action accept\n" \
@@ -142,13 +142,13 @@ class TestAssurancePath:
 
         live_memory.live_note("ibn-loop-inner", "Remediation SUCCESS", "remediation-result")
 
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Remediation {remediationId: 'REM-E2E-001', "
                 "action: 'AUTO_REMEDIATE', success: true, modelState: 'AS_BUILT'})", {}
             )
 
-    def test_t12_2_3_escalate_high_severity(self, neo4j_driver, live_memory, netlab):
+    def test_t12_2_3_escalate_high_severity(self, mock_neo4j, live_memory, netlab):
         """T12.2.3 — HIGH severity creates Ticket and pauses orchestration."""
         severity = "HIGH"
 
@@ -159,17 +159,17 @@ class TestAssurancePath:
             "escalation"
         )
 
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Ticket {ticketId: 'TKT-E2E-001', severity: 'HIGH', "
                 "description: 'Multiple intents violated', modelState: 'POR'})", {}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         tickets = [n for n in nodes if n.get("_label") == "Ticket"]
         assert len(tickets) >= 1
         # severity is a literal in the query, not a parameter. Verify by query instead.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("severity: 'HIGH'" in q["query"] for q in queries)
 
 

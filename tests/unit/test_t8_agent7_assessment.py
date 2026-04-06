@@ -197,9 +197,9 @@ class TestRootCauseAnalysis:
 class TestAssessmentNeo4jWrites:
     """T8.4 — Agent 7 creates ComplianceAssessment and Incident nodes."""
 
-    def test_t8_4_1_creates_compliance_assessment(self, neo4j_driver):
+    def test_t8_4_1_creates_compliance_assessment(self, mock_neo4j):
         """T8.4.1 — ComplianceAssessment node created in L6."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:ComplianceAssessment {assessmentId: $aid, intentId: $iid, "
                 "verdict: $v, timestamp: $ts, modelState: 'AS_BUILT'})",
@@ -209,46 +209,46 @@ class TestAssessmentNeo4jWrites:
                     "ts": datetime.now(timezone.utc).isoformat()
                 }
             )
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         ca = [n for n in nodes if n.get("_label") == "ComplianceAssessment"]
         assert len(ca) >= 1
         assert ca[-1].get("v") == "NON_COMPLIANT"  # param key is $v
 
-    def test_t8_4_2_links_assessment_to_intent(self, neo4j_driver):
+    def test_t8_4_2_links_assessment_to_intent(self, mock_neo4j):
         """T8.4.2 — Assessment linked to Intent via ASSESSES."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:ComplianceAssessment {assessmentId: 'CA-001', modelState: 'AS_BUILT'})"
                 "-[:ASSESSES]->"
                 "(:Intent {intentId: 'INT-001', modelState: 'POR'})",
                 {}
             )
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("ASSESSES" in q["query"] for q in queries)
 
-    def test_t8_4_3_creates_incident_on_non_compliant(self, neo4j_driver):
+    def test_t8_4_3_creates_incident_on_non_compliant(self, mock_neo4j):
         """T8.4.3 — Incident created when verdict is NON_COMPLIANT."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Incident {incidentId: 'INC-001', severity: 'MEDIUM', modelState: 'AS_BUILT'})"
                 "-[:CAUSED_BY]->"
                 "(:RootCause {causeId: 'RC-001', element: 'Interface eth0', modelState: 'AS_BUILT'})",
                 {}
             )
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         incidents = [n for n in nodes if n.get("_label") == "Incident"]
         assert len(incidents) >= 1
 
-    def test_t8_4_4_updates_intent_compliance_status(self, neo4j_driver):
+    def test_t8_4_4_updates_intent_compliance_status(self, mock_neo4j):
         """T8.4.4 — Intent.complianceStatus updated after assessment."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: 'INT-001', complianceStatus: 'NON_COMPLIANT', modelState: 'POR'})",
                 {}
             )
         # complianceStatus is a literal in the query, not a parameter.
         # Verify the query was issued instead.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("complianceStatus" in q["query"] for q in queries)
 
 

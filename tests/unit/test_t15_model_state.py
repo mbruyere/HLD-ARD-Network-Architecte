@@ -54,9 +54,9 @@ class TestStateTransitions:
 class TestImmutability:
     """T15.2 — Nodes are versioned, not mutated. PRECEDED_BY chains are traversable."""
 
-    def test_t15_2_1_new_version_created_not_mutated(self, neo4j_driver):
+    def test_t15_2_1_new_version_created_not_mutated(self, mock_neo4j):
         """T15.2.1 — Config update creates new node with PRECEDED_BY link."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             # Create v1
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-001-v1', version: 1, "
@@ -71,16 +71,16 @@ class TestImmutability:
             )
 
         # Verify both CREATE queries were issued (mock stores params, not Cypher props)
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert len(queries) >= 2
         # PRECEDED_BY relationship was created in the second query
         assert any("PRECEDED_BY" in q["query"] for q in queries)
         # Both queries targeted Configuration labels
         assert all("Configuration" in q["query"] for q in queries)
 
-    def test_t15_2_2_preceded_by_chain_traversable(self, neo4j_driver):
+    def test_t15_2_2_preceded_by_chain_traversable(self, mock_neo4j):
         """T15.2.2 — Three-version chain: v3 → v2 → v1."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             for v in range(1, 4):
                 session.run(
                     f"CREATE (:Configuration {{configId: 'CFG-{v}', version: {v}, modelState: 'POR'}})", {}
@@ -96,13 +96,13 @@ class TestImmutability:
             )
 
         # Verify chain exists in queries
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         preceded_queries = [q for q in queries if "PRECEDED_BY" in q["query"]]
         assert len(preceded_queries) >= 2
 
-    def test_t15_2_3_old_versions_readable(self, neo4j_driver):
+    def test_t15_2_3_old_versions_readable(self, mock_neo4j):
         """T15.2.3 — Old versions remain accessible after new version created."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-v1', version: 1, "
                 "content: 'original content', modelState: 'POR'})", {}
@@ -113,13 +113,13 @@ class TestImmutability:
             )
 
         # Verify both versions were created as separate queries
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert len(queries) >= 2
         # Both target Configuration label
         cfg_queries = [q for q in queries if "Configuration" in q["query"]]
         assert len(cfg_queries) >= 2
         # Nodes exist (mock stores params, not Cypher property names)
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         configs = [n for n in nodes if n.get("_label") == "Configuration"]
         assert len(configs) >= 2
 

@@ -306,7 +306,7 @@ class TestNetLabTopologyGenerator:
         from ibn.agents.netlab_topology import NetLabTopologyGenerator
 
         gen = NetLabTopologyGenerator(real_neo4j)
-        topo = gen.generate(site_id="site-hq")
+        topo = gen.generate(site_id="SITE-HQ-01")
 
         # Basic structure checks
         assert "provider" in topo
@@ -334,7 +334,7 @@ class TestNetLabTopologyGenerator:
         from ibn.agents.netlab_topology import NetLabTopologyGenerator
 
         gen = NetLabTopologyGenerator(real_neo4j)
-        topo = gen.generate(site_id="site-hq")
+        topo = gen.generate(site_id="SITE-HQ-01")
 
         node_names = set(topo["nodes"].keys())
         # HLD firewalls must appear in the topology
@@ -348,7 +348,7 @@ class TestNetLabTopologyGenerator:
         from ibn.agents.netlab_topology import NetLabTopologyGenerator
 
         gen = NetLabTopologyGenerator(real_neo4j)
-        topo = gen.generate(site_id="site-hq")
+        topo = gen.generate(site_id="SITE-HQ-01")
 
         vlan_ids = {v["id"] for v in topo.get("vlans", {}).values() if isinstance(v, dict) and "id" in v}
         population_vlans = set(range(100, 161))

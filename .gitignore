@@ -42,3 +42,4 @@ logs/
 
 # Docker volumes (never committed)
 docker/volumes/
+tests/unit/sed*

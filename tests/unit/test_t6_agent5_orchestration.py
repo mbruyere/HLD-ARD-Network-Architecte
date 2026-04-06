@@ -20,11 +20,11 @@ class TestConfigPush:
         assert result["status"] == "ok"
         assert result["device"] == "usf-fw-01"
 
-    def test_t6_1_2_push_records_deployment_event(self, neo4j_driver, netlab):
+    def test_t6_1_2_push_records_deployment_event(self, mock_neo4j, netlab):
         """T6.1.2 — Successful push creates DeploymentEvent in Neo4j L5."""
         netlab.deploy_config("usf-fw-01", "set system host-name usf-fw-01")
 
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:DeploymentEvent {eventId: $eid, timestamp: $ts, "
                 "status: 'DEPLOYED', targetDeviceId: $did, modelState: 'DEPLOYED'})",
@@ -35,16 +35,16 @@ class TestConfigPush:
                 }
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         dep_nodes = [n for n in nodes if n.get("_label") == "DeploymentEvent"]
         assert len(dep_nodes) >= 1
         # status is a literal in the query, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("status: 'DEPLOYED'" in q["query"] for q in queries)
 
-    def test_t6_1_3_push_failure_records_failed_event(self, neo4j_driver):
+    def test_t6_1_3_push_failure_records_failed_event(self, mock_neo4j):
         """T6.1.3 — Failed push creates DeploymentEvent with FAILED status."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:DeploymentEvent {eventId: $eid, timestamp: $ts, "
                 "status: 'FAILED', targetDeviceId: $did, "
@@ -57,11 +57,11 @@ class TestConfigPush:
                 }
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         dep_nodes = [n for n in nodes if n.get("_label") == "DeploymentEvent"]
         assert len(dep_nodes) >= 1
         # status is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("status: 'FAILED'" in q["query"] for q in queries)
 
     def test_t6_1_4_push_follows_migration_plan_order(self, netlab):
@@ -108,9 +108,9 @@ class TestRollback:
         assert netlab.devices["usf-fw-01"].running_config == v1_config
         assert netlab.devices["usf-fw-02"].running_config == v1_config
 
-    def test_t6_2_2_rollback_event_recorded(self, neo4j_driver):
+    def test_t6_2_2_rollback_event_recorded(self, mock_neo4j):
         """T6.2.2 — Rollback events recorded in Neo4j."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:DeploymentEvent {eventId: $eid, status: 'ROLLED_BACK', "
                 "targetDeviceId: $did, rollbackFrom: $from_v, "
@@ -123,11 +123,11 @@ class TestRollback:
                 }
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         dep_nodes = [n for n in nodes if n.get("_label") == "DeploymentEvent"]
         assert len(dep_nodes) >= 1
         # status is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("status: 'ROLLED_BACK'" in q["query"] for q in queries)
 
 
@@ -136,35 +136,35 @@ class TestRollback:
 class TestOrchestrationModelState:
     """T6.3 — Config nodes transition through model states on deploy."""
 
-    def test_t6_3_1_config_transitions_to_deployed(self, neo4j_driver):
+    def test_t6_3_1_config_transitions_to_deployed(self, mock_neo4j):
         """T6.3.1 — Config nodes move from CANDIDATE to DEPLOYED."""
         # This tests the expected Cypher that Agent 5 would issue
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Configuration {configId: 'CFG-001', modelState: 'DEPLOYED'})",
                 {}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         cfg_nodes = [n for n in nodes if n.get("_label") == "Configuration"]
         assert len(cfg_nodes) >= 1
         # modelState is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("modelState: 'DEPLOYED'" in q["query"] for q in queries)
 
-    def test_t6_3_2_intent_status_updated(self, neo4j_driver):
+    def test_t6_3_2_intent_status_updated(self, mock_neo4j):
         """T6.3.2 — Intent status set to ORCHESTRATED after all configs deployed."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: 'INT-001', status: 'ORCHESTRATED', modelState: 'POR'})",
                 {}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         intent_nodes = [n for n in nodes if n.get("_label") == "Intent"]
         assert len(intent_nodes) >= 1
         # status is a literal, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("status: 'ORCHESTRATED'" in q["query"] for q in queries)
 
 

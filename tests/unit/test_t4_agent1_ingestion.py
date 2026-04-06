@@ -67,9 +67,9 @@ class TestIntentParsing:
 class TestIngestionNeo4jWrites:
     """T4.2 — Validate that Agent 1 creates correct Neo4j nodes."""
 
-    def test_t4_2_1_creates_intent_node(self, neo4j_driver):
+    def test_t4_2_1_creates_intent_node(self, mock_neo4j):
         """T4.2.1 — Creates Intent node in L4 with correct properties."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: $id, statement: $stmt, "
                 "status: 'INGESTED', modelState: 'CANDIDATE', createdAt: $ts})",
@@ -81,14 +81,14 @@ class TestIngestionNeo4jWrites:
             )
 
         # Verify the node was created
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         intent_nodes = [n for n in nodes if n.get("_label") == "Intent"]
         assert len(intent_nodes) >= 1
         assert intent_nodes[-1].get("id") == "INT-001"  # param key is $id
 
-    def test_t4_2_2_links_intent_to_business_use_case(self, neo4j_driver):
+    def test_t4_2_2_links_intent_to_business_use_case(self, mock_neo4j):
         """T4.2.2 — Intent linked to BusinessUseCase via ADDRESSES."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: 'INT-001', modelState: 'CANDIDATE'})"
                 "-[:ADDRESSES]->"
@@ -97,25 +97,25 @@ class TestIngestionNeo4jWrites:
             )
 
         # Verify query was recorded
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("ADDRESSES" in q["query"] for q in queries)
 
-    def test_t4_2_3_sets_candidate_model_state(self, neo4j_driver):
+    def test_t4_2_3_sets_candidate_model_state(self, mock_neo4j):
         """T4.2.3 — New intent always has modelState CANDIDATE."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:Intent {intentId: $id, modelState: $state})",
                 {"id": "INT-002", "state": "CANDIDATE"}
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         intent_nodes = [n for n in nodes if n.get("_label") == "Intent"]
         assert all(n.get("state", n.get("modelState")) == "CANDIDATE"
                     for n in intent_nodes if "state" in n or "modelState" in n)
 
-    def test_t4_2_4_writes_agent_execution_record(self, neo4j_driver):
+    def test_t4_2_4_writes_agent_execution_record(self, mock_neo4j):
         """T4.2.4 — Creates AgentExecution audit node in L9."""
-        with neo4j_driver.session() as session:
+        with mock_neo4j.session() as session:
             session.run(
                 "CREATE (:AgentExecution {agentId: 'A1', action: 'ingest', "
                 "inputIntentId: $iid, outputIntentId: $oid, "
@@ -127,11 +127,11 @@ class TestIngestionNeo4jWrites:
                 }
             )
 
-        nodes = neo4j_driver.nodes
+        nodes = mock_neo4j.nodes
         exec_nodes = [n for n in nodes if n.get("_label") == "AgentExecution"]
         assert len(exec_nodes) >= 1
         # agentId is a literal in the query, not a parameter. Verify via query.
-        queries = neo4j_driver.queries
+        queries = mock_neo4j.queries
         assert any("agentId: 'A1'" in q["query"] for q in queries)
 
 
