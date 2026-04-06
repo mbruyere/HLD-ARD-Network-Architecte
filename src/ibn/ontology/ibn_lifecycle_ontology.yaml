@@ -1,0 +1,471 @@
+# IBN Network Lifecycle Ontology for Graph-Memory (Tier 3)
+#
+# Version:     1.0.0
+# Namespace:   IBN_LIFECYCLE_   (all Neo4j labels carry this prefix)
+# Description: Guides LLM entity/relation extraction when Live-Memory bank
+#              files are pushed to Graph-Memory via graph_push().
+#
+# Architecture reference: IBN_Closed_Loop_Architecture.md §10.2.2
+#
+# 4 entity families:
+#   Decisions & Rationale    — WHY the network was configured this way
+#   Incidents & Remediation  — WHAT went wrong and how it was fixed
+#   Operations & Deployment  — HOW changes were executed
+#   Knowledge & Patterns     — WHAT was learned for future use
+#
+# 8 relationship types encode causal, temporal, and epistemic links
+# between entities, enabling graph-guided RAG queries like:
+#   "What caused the last USF firewall drift?"
+#   "Was this remediation pattern seen before?"
+
+name: IBN Network Lifecycle
+version: 1.0.0
+namespace: IBN_LIFECYCLE_
+description: >
+  Domain ontology for the IBN Closed-Loop Feedback Control System
+  (RFC 9315).  Captures the causal and temporal structure of operational
+  decisions, incidents, and institutional knowledge accumulated across
+  all inner and outer loop iterations.
+
+# ── Entity families ─────────────────────────────────────────────────────────
+
+entities:
+
+  # --- Decisions & Rationale ------------------------------------------------
+
+  - name: PolicyDecision
+    family: Decisions
+    description: >
+      A decision made about network policy, firewall rules, zone configuration,
+      or segment assignment during the intent → policy translation phase (A2).
+    attributes:
+      - name: decision_id
+        type: string
+        description: Unique identifier, e.g. "POL-DEC-001"
+      - name: intent_id
+        type: string
+        description: Source intent that triggered this decision
+      - name: rationale
+        type: string
+        description: Human-readable justification
+      - name: made_at
+        type: datetime
+      - name: made_by
+        type: string
+        description: Agent ID or operator name
+
+  - name: DesignChoice
+    family: Decisions
+    description: >
+      An architectural or design decision recorded during HLD/ARD evolution
+      or What-If analysis (A4).
+    attributes:
+      - name: choice_id
+        type: string
+      - name: alternatives_considered
+        type: string
+        description: Free-text list of alternatives that were evaluated
+
+  - name: TradeOff
+    family: Decisions
+    description: >
+      A documented trade-off between two competing design approaches, e.g.
+      high-availability vs. cost, or strict isolation vs. operational simplicity.
+    attributes:
+      - name: option_a
+        type: string
+      - name: option_b
+        type: string
+      - name: chosen
+        type: string
+
+  - name: RejectedAlternative
+    family: Decisions
+    description: An approach that was considered and explicitly rejected, with rationale.
+    attributes:
+      - name: description
+        type: string
+      - name: rejection_reason
+        type: string
+
+  - name: ApprovalRecord
+    family: Decisions
+    description: >
+      A human approval event — sign-off on a policy change, Candidate→POR
+      promotion, or escalation resolution.
+    attributes:
+      - name: approver
+        type: string
+      - name: approved_at
+        type: datetime
+      - name: scope
+        type: string
+        description: What was approved (intent_id, change_request_id, etc.)
+
+  # --- Incidents & Remediation ----------------------------------------------
+
+  - name: DriftEvent
+    family: Incidents
+    description: >
+      A detected difference between the Plan-of-Record (POR) and the As-Built
+      network state, as identified by Agent 7 (Assessment).
+    attributes:
+      - name: drift_id
+        type: string
+        description: Unique identifier, e.g. "DRIFT-042"
+      - name: device_id
+        type: string
+        description: Affected device hostname
+      - name: drift_type
+        type: string
+        description: "missing_rule | extra_rule | wrong_value | interface_down"
+      - name: severity
+        type: string
+        description: "Info | Low | Medium | High | Critical"
+      - name: detected_at
+        type: datetime
+      - name: resolved
+        type: boolean
+
+  - name: RootCauseAnalysis
+    family: Incidents
+    description: >
+      Analysis identifying the root cause of a drift event or compliance
+      violation, produced by Agent 7.
+    attributes:
+      - name: rca_id
+        type: string
+      - name: cause_category
+        type: string
+        description: "manual_cli | config_push_error | device_restart | unknown"
+      - name: evidence
+        type: string
+
+  - name: RemediationAction
+    family: Incidents
+    description: >
+      An action taken by Agent 8 to correct a drift or compliance violation.
+    attributes:
+      - name: remediation_id
+        type: string
+      - name: action_type
+        type: string
+        description: "auto_remediate | rollback | escalate | log_only"
+      - name: target_device
+        type: string
+      - name: outcome
+        type: string
+        description: "RESOLVED | FAILED | ESCALATED | PENDING"
+      - name: duration_seconds
+        type: integer
+
+  - name: EscalationRecord
+    family: Incidents
+    description: >
+      A record of an incident escalated to human operators because it exceeded
+      the autonomous action boundary (High/Critical severity).
+    attributes:
+      - name: escalation_id
+        type: string
+      - name: escalated_to
+        type: string
+      - name: escalated_at
+        type: datetime
+      - name: resolution
+        type: string
+
+  - name: ComplianceTrend
+    family: Incidents
+    description: >
+      A trend in compliance scores observed across multiple inner loop
+      iterations (improving / degrading / stable).
+    attributes:
+      - name: trend_id
+        type: string
+      - name: direction
+        type: string
+        description: "improving | degrading | stable"
+      - name: observation_window_hours
+        type: integer
+      - name: compliance_delta_percent
+        type: number
+
+  # --- Operations & Deployment ----------------------------------------------
+
+  - name: DeploymentNarrative
+    family: Operations
+    description: >
+      A record of a configuration deployment to network devices by Agent 5,
+      including pre/post verification results.
+    attributes:
+      - name: deployment_id
+        type: string
+      - name: devices_affected
+        type: integer
+      - name: commands_pushed
+        type: integer
+      - name: duration_seconds
+        type: integer
+      - name: verification_passed
+        type: boolean
+
+  - name: ConfigurationRationale
+    family: Operations
+    description: >
+      The reasoning behind a specific configuration choice, captured by Agent 3
+      during Jinja2 rendering.
+    attributes:
+      - name: config_id
+        type: string
+      - name: template_version
+        type: string
+      - name: rationale
+        type: string
+
+  - name: RollbackRecord
+    family: Operations
+    description: A record of a configuration rollback event triggered by Agent 8.
+    attributes:
+      - name: rollback_id
+        type: string
+      - name: trigger_severity
+        type: string
+      - name: rollback_target
+        type: string
+        description: PRECEDED_BY chain reference (deployment_id)
+      - name: success
+        type: boolean
+
+  - name: VerificationResult
+    family: Operations
+    description: >
+      The result of post-deployment verification — rule count check, reachability
+      test, or compliance assessment immediately following a deployment.
+    attributes:
+      - name: verification_id
+        type: string
+      - name: rules_expected
+        type: integer
+      - name: rules_found
+        type: integer
+      - name: passed
+        type: boolean
+
+  # --- Knowledge & Patterns -------------------------------------------------
+
+  - name: RecurringPattern
+    family: Knowledge
+    description: >
+      A pattern observed across multiple loop iterations, e.g. "VLAN 110 latency
+      spikes correlate with office hours" or "fw-hq-usr-01 drifts every maintenance
+      window".
+    attributes:
+      - name: pattern_id
+        type: string
+      - name: pattern_type
+        type: string
+        description: "drift | latency | config_error | maintenance_correlation"
+      - name: frequency
+        type: integer
+        description: Number of times observed
+      - name: first_seen
+        type: datetime
+      - name: last_seen
+        type: datetime
+
+  - name: LessonLearned
+    family: Knowledge
+    description: >
+      An operational lesson derived from incidents or deployments, intended to
+      guide future decisions.
+    attributes:
+      - name: lesson_id
+        type: string
+      - name: summary
+        type: string
+      - name: applies_to
+        type: string
+        description: Device type, VLAN, zone, or protocol this lesson applies to
+
+  - name: CapacityInsight
+    family: Knowledge
+    description: An insight about network capacity, bandwidth utilisation, or resource limits.
+    attributes:
+      - name: insight_id
+        type: string
+      - name: resource_type
+        type: string
+        description: "bandwidth | cpu | memory | port_count"
+      - name: threshold_percent
+        type: number
+      - name: recommendation
+        type: string
+
+  - name: CorrelationFinding
+    family: Knowledge
+    description: >
+      A discovered correlation between two or more network events or metrics,
+      e.g. drift events correlating with firmware upgrades.
+    attributes:
+      - name: finding_id
+        type: string
+      - name: metric_a
+        type: string
+      - name: metric_b
+        type: string
+      - name: correlation_strength
+        type: string
+        description: "strong | moderate | weak"
+
+# ── Relationship types ───────────────────────────────────────────────────────
+
+relationships:
+
+  - name: CAUSED_BY
+    description: >
+      Links a drift event or incident to its root cause.
+    source_types:
+      - DriftEvent
+      - RemediationAction
+    target_types:
+      - RootCauseAnalysis
+      - RecurringPattern
+      - CorrelationFinding
+
+  - name: RESOLVED_BY
+    description: >
+      Links an incident to the remediation or rollback that fixed it.
+    source_types:
+      - DriftEvent
+      - EscalationRecord
+    target_types:
+      - RemediationAction
+      - RollbackRecord
+
+  - name: PRECEDED
+    description: >
+      Temporal ordering — one decision, deployment, or event preceded another.
+      Mirrors the SSoT ``PRECEDED_BY`` relationship but at the knowledge level.
+    source_types:
+      - PolicyDecision
+      - DeploymentNarrative
+      - DriftEvent
+      - RemediationAction
+    target_types:
+      - PolicyDecision
+      - DeploymentNarrative
+      - DriftEvent
+      - RemediationAction
+
+  - name: JUSTIFIED_BY
+    description: >
+      Links a design choice or policy decision to the rationale or lesson that
+      supports it.
+    source_types:
+      - PolicyDecision
+      - DesignChoice
+      - ConfigurationRationale
+    target_types:
+      - DesignChoice
+      - TradeOff
+      - LessonLearned
+      - ApprovalRecord
+
+  - name: CONTRADICTS
+    description: >
+      Knowledge evolution — a new finding contradicts an earlier lesson or
+      pattern.  Used to track when operational reality diverges from prior
+      understanding.
+    source_types:
+      - LessonLearned
+      - CorrelationFinding
+    target_types:
+      - LessonLearned
+      - CorrelationFinding
+
+  - name: CONFIRMS
+    description: >
+      A new finding or event confirms an earlier pattern or lesson, increasing
+      its confidence.
+    source_types:
+      - LessonLearned
+      - RecurringPattern
+      - DriftEvent
+    target_types:
+      - LessonLearned
+      - RecurringPattern
+
+  - name: SIMILAR_TO
+    description: >
+      Cross-iteration pattern matching — a current drift, remediation, or
+      decision resembles a past one.  Primary link for graph-guided RAG
+      precedent retrieval.
+    source_types:
+      - DriftEvent
+      - RemediationAction
+      - RecurringPattern
+      - PolicyDecision
+    target_types:
+      - DriftEvent
+      - RemediationAction
+      - RecurringPattern
+      - PolicyDecision
+
+  - name: INFORMED_BY
+    description: >
+      Links a current decision or action to a historical precedent in the
+      knowledge graph.  Set by agents when they explicitly query
+      ``question_answer()`` before deciding.
+    source_types:
+      - PolicyDecision
+      - DesignChoice
+      - RemediationAction
+    target_types:
+      - LessonLearned
+      - RecurringPattern
+      - ComplianceTrend
+      - CorrelationFinding
+
+# ── Extraction hints ─────────────────────────────────────────────────────────
+# These phrases guide the LLM extraction pipeline when parsing bank files.
+
+extraction_hints:
+  PolicyDecision:
+    - "decision:"
+    - "policy change"
+    - "firewall rule"
+    - "zone assignment"
+    - "chose to"
+  DriftEvent:
+    - "drift detected"
+    - "drift event"
+    - "POR vs AS-BUILT"
+    - "non-compliant"
+    - "missing rule"
+    - "extra rule"
+  RemediationAction:
+    - "auto-remediate"
+    - "re-push"
+    - "rollback"
+    - "remediation"
+    - "action:"
+    - "resolved after"
+  LessonLearned:
+    - "lesson:"
+    - "learned:"
+    - "best practice"
+    - "recommendation"
+    - "avoid"
+    - "should always"
+  RecurringPattern:
+    - "pattern observed"
+    - "recurring"
+    - "seen N times"
+    - "correlates with"
+    - "every maintenance"
+  DeploymentNarrative:
+    - "deployment"
+    - "SSH push"
+    - "config push"
+    - "deployed to"
+    - "post-deploy"

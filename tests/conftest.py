@@ -302,7 +302,7 @@ class MockGraphMemoryClient:
         self.memories[name] = {"name": name, "ontology": ontology or {}}
         return {"status": "created", "memory": name}
 
-    def graph_push(self, memory: str, content: str, source: str = ""):
+    def graph_push(self, memory: str, content: str, source: str = "", metadata: dict = None):
         self._log("graph_push", {"memory": memory, "source": source})
         # Simulate entity extraction
         entity = {
@@ -313,14 +313,23 @@ class MockGraphMemoryClient:
         self.entities.append(entity)
         return {"status": "ingested", "entities_extracted": 1, "relations_extracted": 0}
 
-    def question_answer(self, memory: str, question: str):
+    def graph_push_batch(self, memory: str, bank_files: dict, space_id: str = "") -> list:
+        """Push all bank files from a space to Graph-Memory."""
+        results = []
+        for bank_name, content in bank_files.items():
+            source = f"{space_id}/{bank_name}" if space_id else bank_name
+            result = self.graph_push(memory=memory, content=content, source=source)
+            results.append({**result, "bank": bank_name})
+        return results
+
+    def question_answer(self, memory: str, question: str, max_results: int = 5):
         self._log("question_answer", {"memory": memory, "question": question})
         # Return any matching entities as context
         relevant = [e for e in self.entities if e["memory"] == memory]
         if relevant:
             return {
                 "answer": f"Based on {len(relevant)} knowledge entries in {memory}.",
-                "sources": [e["content_preview"] for e in relevant[:3]],
+                "sources": [e["content_preview"] for e in relevant[:min(max_results, 3)]],
             }
         return {"answer": "No relevant knowledge found.", "sources": []}
 
