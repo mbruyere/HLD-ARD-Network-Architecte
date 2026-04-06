@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from ibn.core.base_agent import EventBus, get_default_bus
+from ibn.core.base_agent import EventBus, get_default_bus, get_event_bus
 from ibn.core.live_memory_client import LiveMemoryClient
 from ibn.core.neo4j_client import Neo4jClient
 from ibn.agents.agent6_monitoring import Agent6Monitoring
@@ -46,7 +46,7 @@ class InnerLoop:
         assess_space: str = "ibn-loop-inner",
         outer_space: str = "ibn-loop-outer",
     ):
-        self._bus = event_bus or get_default_bus()
+        self._bus = event_bus or get_event_bus()
         self._assess_space = assess_space
         self._outer_space = outer_space
 

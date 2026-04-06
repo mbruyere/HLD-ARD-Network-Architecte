@@ -1,0 +1,37 @@
+# IBN Closed-Loop Infrastructure
+# Usage:
+#   docker compose up -d          — start Redis (Neo4j already runs standalone)
+#   docker compose down           — stop all
+#   docker compose logs redis     — tail Redis logs
+#
+# Neo4j runs separately (see STEP1_Neo4j_Ontology_Bootstrap.md).
+# Live-Memory and Graph-Memory MCP servers run via their own containers.
+
+version: "3.9"
+
+services:
+
+  # ── Redis 7 — Event Bus (Streams) ──────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ibn-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+    driver: local

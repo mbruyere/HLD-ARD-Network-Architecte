@@ -13,11 +13,12 @@ Subclasses override ``_execute(**kwargs) → dict`` with their logic.
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from ibn.core.models import AgentExecution, ModelState
 from ibn.core.neo4j_client import Neo4jClient
@@ -62,6 +63,26 @@ def get_default_bus() -> EventBus:
     if _default_bus is None:
         _default_bus = EventBus()
     return _default_bus
+
+
+def get_event_bus(redis_url: Optional[str] = None) -> EventBus:
+    """
+    Return a Redis-backed bus if *redis_url* is given (or ``REDIS_URL`` env
+    var is set), otherwise fall back to the in-process singleton.
+
+    The Redis bus is preferred for production (cross-process delivery).
+    The in-process bus is used in tests and single-process dev mode.
+    """
+    url = redis_url or os.environ.get("REDIS_URL")
+    if url:
+        try:
+            from ibn.core.redis_event_bus import RedisEventBus
+            return RedisEventBus(url)
+        except Exception as exc:
+            logger.warning(
+                "Redis unavailable (%s) — falling back to in-process EventBus", exc
+            )
+    return get_default_bus()
 
 
 # ---------------------------------------------------------------------------
