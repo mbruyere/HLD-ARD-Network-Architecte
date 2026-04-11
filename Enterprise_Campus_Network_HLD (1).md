@@ -3178,6 +3178,7 @@ graph LR
 | Guest Access | 140 | 50-300 | 10-100 | Scavenger | CS1 | 5-10 Mbps |
 | Admin Systems | 150 | 20-80 | 5-20 | Medium | AF31 | 1-5 Mbps |
 | Operational Tech | 160 | 100-1000 | 20-200 | Med-High | AF32, EF | 0.1-0.5 Mbps |
+| Slice1 Hook Test | 199 | 5-10 | 2-5 | Standard | AF21 | 1 Mbps |
 
 ### DMZ Summary Table
 
