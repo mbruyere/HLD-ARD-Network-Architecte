@@ -125,15 +125,70 @@ _QUERIES = {
                v.name   AS vlan_name,
                sn.prefix AS subnet
     """,
+    # Slice 2: non-firewall devices (switches, edges, …) joined to their site
+    # rather than to a FirewallPair. The vendor field is what drives template
+    # dispatch in _render_device(). Returns the same column shape as the
+    # firewalls query so the renderer can treat both lists uniformly.
+    "switches": """
+        MATCH (d:Device)
+        WHERE d.deviceRole IN ['ACCESS_SWITCH','AGGREGATION_SWITCH','EDGE_ROUTER']
+          AND d.modelState IN ['POR','DEPLOYED']
+        OPTIONAL MATCH (d)-[:LOCATED_AT]->(s:Site)
+        RETURN d.deviceId   AS device_id,
+               d.hostname   AS hostname,
+               d.vendor     AS vendor,
+               d.platform   AS platform,
+               d.deviceRole AS device_role,
+               s.siteId     AS site_id,
+               s.name       AS site_name
+        ORDER BY d.deviceRole, d.hostname
+    """,
+    # Slice 2: all current VLAN nodes (CANDIDATE/POR/DEPLOYED). Switch
+    # templates iterate this to provision the VLAN database. The HLD
+    # population table is the source-of-truth for which VLANs exist —
+    # A1 writes them via create_vlan() during HLD ingestion.
+    "vlans": """
+        MATCH (v:VLAN)
+        WHERE v.modelState IN ['CANDIDATE','POR','DEPLOYED']
+          AND v.vlanId IS NOT NULL
+        RETURN v.vlanId    AS vlan_id,
+               v.name      AS vlan_name,
+               v.modelState AS model_state,
+               v.origin    AS origin
+        ORDER BY v.vlanId
+    """,
 }
 
-# Default VyOS template chain
-_DEFAULT_TEMPLATE_CHAIN = [
-    "vyos_firewall_base.j2",
-    "vyos_firewall_policies.j2",
-    "vyos_nat.j2",
-    "vyos_ha.j2",
-]
+# ── Vendor dispatch table ──────────────────────────────────────────────────
+# Maps device.platform (case-insensitive) → ordered list of Jinja2 templates
+# in firewall_pipeline/templates/. Adding a new vendor in a future slice is
+# a one-line change here plus a new template set on disk.
+_TEMPLATE_CHAINS: dict[str, list[str]] = {
+    "vyos": [
+        "vyos_firewall_base.j2",
+        "vyos_firewall_policies.j2",
+        "vyos_nat.j2",
+        "vyos_ha.j2",
+    ],
+    "srlinux": [
+        # Order matters: srl_interfaces enables vlan-tagging on the trunk
+        # port, which is a prerequisite for srl_vlans to attach subinterfaces.
+        "srl_base.j2",
+        "srl_interfaces.j2",
+        "srl_vlans.j2",
+    ],
+    # Slice 6 will add: "ios-xe": [...], "eos": [...], etc.
+}
+
+# Backwards-compat alias used by tests that import the old constant.
+_DEFAULT_TEMPLATE_CHAIN = _TEMPLATE_CHAINS["vyos"]
+
+
+def _resolve_chain(platform: Optional[str]) -> list[str]:
+    """Look up the template chain for a device.platform, case-insensitive."""
+    if not platform:
+        return _TEMPLATE_CHAINS["vyos"]  # safe default
+    return _TEMPLATE_CHAINS.get(platform.lower(), _TEMPLATE_CHAINS["vyos"])
 
 
 class Agent3PolicyConfig(BaseAgent):
@@ -157,7 +212,7 @@ class Agent3PolicyConfig(BaseAgent):
     def _execute(self, intent_id: str = "none", candidate_space: str = "ibn-candidate-bootstrap",
                  **kwargs) -> dict:
         """
-        Render configs for all POR firewall devices.
+        Render configs for all POR firewalls and switches (Slice 2).
 
         Returns a dict with per-device results:
             {
@@ -167,13 +222,24 @@ class Agent3PolicyConfig(BaseAgent):
                 ],
                 "intent_id": ...,
             }
+
+        The render is vendor-aware: firewalls go through the VyOS template
+        chain, switches through their platform's chain (per ``_TEMPLATE_CHAINS``).
         """
         context = self._build_context()
-        devices = context["firewalls"]
+        firewalls = context.get("firewalls", []) or []
+        switches  = context.get("switches",  []) or []
+        devices   = list(firewalls) + list(switches)
 
         if not devices:
-            self._note(candidate_space, "No firewall devices found in POR state", "observation")
+            self._note(candidate_space, "No firewalls or switches found in POR state", "observation")
             return {"devices": [], "intent_id": intent_id}
+
+        self._note(
+            candidate_space,
+            f"A3 render: {len(firewalls)} firewalls + {len(switches)} switches",
+            "progress",
+        )
 
         results = []
         for device in devices:
@@ -191,6 +257,8 @@ class Agent3PolicyConfig(BaseAgent):
                 results.append({
                     "deviceId": device["device_id"],
                     "hostname": device["hostname"],
+                    "platform": device.get("platform"),  # Slice 2: vendor dispatch hint
+                    "vendor":   device.get("vendor"),
                     "configId": config_id,
                     "content": content,
                     "diffLines": diff_lines,
@@ -228,7 +296,12 @@ class Agent3PolicyConfig(BaseAgent):
     # ------------------------------------------------------------------
 
     def _render_device(self, device: dict, context: dict) -> str:
-        """Render the 4-template chain for a single device."""
+        """Render the per-vendor template chain for a single device.
+
+        Slice 2: the chain is selected from ``_TEMPLATE_CHAINS`` keyed on
+        ``device.platform`` (case-insensitive). Unknown platforms fall back
+        to the VyOS chain so existing tests keep working.
+        """
         try:
             from jinja2 import Environment, FileSystemLoader, StrictUndefined
         except ImportError:
@@ -245,9 +318,10 @@ class Agent3PolicyConfig(BaseAgent):
             lstrip_blocks=True,
         )
 
+        chain = _resolve_chain(device.get("platform"))
         device_ctx = {**context, "device": device}
         rendered_parts = []
-        for template_name in _DEFAULT_TEMPLATE_CHAIN:
+        for template_name in chain:
             try:
                 tmpl = env.get_template(template_name)
                 rendered_parts.append(tmpl.render(**device_ctx))

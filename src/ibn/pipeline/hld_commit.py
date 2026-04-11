@@ -279,6 +279,9 @@ class HldCommitPipeline:
                     "deviceId": d["deviceId"],
                     "configId": d["configId"],
                     "content":  d["content"],
+                    # Slice 2: pass platform through so A5 can dispatch
+                    # to the right vendor executor (vyos / srlinux / …).
+                    "platform": d.get("platform"),
                 }
                 for d in r.get("devices", [])
                 if "configId" in d
@@ -299,10 +302,21 @@ class HldCommitPipeline:
                     f"HLD pipeline FAILED at A5 for intent {iid}: {exc}"
                 )
                 return self._final_result(stages, cycle_complete=False)
+
+        # Slice 2: surface A5's internal status. A5 returns FAILED on
+        # rollback without raising, so the previous "always ok" was masking
+        # real push failures.
+        any_failed = any(r.get("status") == "FAILED" for r in a5_results)
+        deployed_count = sum(len(r.get("devices", [])) for r in a5_results if r.get("status") == "ORCHESTRATED")
+        skipped_count = sum(len(r.get("skipped", [])) for r in a5_results)
         stages.append(StageResult(
             name="A5 deploy",
-            status="ok",
-            summary=f"{len(a5_results)} intents deployed",
+            status="error" if any_failed else "ok",
+            summary=(
+                f"{deployed_count} devices pushed, "
+                f"{skipped_count} skipped (empty render)"
+                + (f", FAILED on intent(s)" if any_failed else "")
+            ),
             payload={"deploys": a5_results},
         ))
 

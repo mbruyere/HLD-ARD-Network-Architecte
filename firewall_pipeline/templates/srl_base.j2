@@ -1,0 +1,6 @@
+{# SR Linux base config — hostname, system, mgmt
+   Slice 2: minimal renderable surface for vendor dispatch validation.
+   Slice 6 will add NTP, DNS, AAA, mgmt VRF, etc.
+   The output is in SR Linux 'set' command syntax suitable for sr_cli. #}
+set / system name host-name {{ device.hostname }}
+set / system information location "IBN-Lab managed by closed-loop pipeline"

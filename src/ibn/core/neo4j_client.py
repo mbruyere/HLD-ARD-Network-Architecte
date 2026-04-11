@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from neo4j import GraphDatabase, Driver, Session
@@ -212,6 +213,63 @@ class Neo4jClient:
             )
             record = result.single()
             return dict(record["r"]) if record else {}
+
+    # ------------------------------------------------------------------
+    # L1 — VLAN  (output of Agent 1's HLD ingestion phase, Slice 2)
+    # ------------------------------------------------------------------
+
+    def create_vlan(
+        self,
+        vlan_id: int,
+        name: str,
+        model_state: str = "CANDIDATE",
+        origin: Optional[str] = None,
+        intent_id: Optional[str] = None,
+    ) -> dict:
+        """Create or update a VLAN node in L1 (idempotent on vlanId).
+
+        When the HLD's population table introduces a new population, A1
+        writes the corresponding L1 VLAN here. Switches consume these
+        VLAN nodes at render time (Agent 3 vendor dispatch).
+
+        ``intent_id`` is optional — when given, a TRACES_TO relationship
+        is created from VLAN → Intent so the audit trail is queryable
+        in either direction.
+        """
+        with self._session() as s:
+            result = s.run(
+                """
+                MERGE (v:VLAN {vlanId: $vlanId})
+                ON CREATE SET
+                    v.name       = $name,
+                    v.modelState = $modelState,
+                    v.createdAt  = $createdAt,
+                    v.origin     = $origin
+                ON MATCH SET
+                    v.name       = $name,
+                    v.modelState = $modelState,
+                    v.origin     = coalesce($origin, v.origin)
+                RETURN v
+                """,
+                vlanId     = vlan_id,
+                name       = name,
+                modelState = model_state,
+                createdAt  = datetime.now(timezone.utc).isoformat(),
+                origin     = origin,
+            )
+            record = result.single()
+            vlan = dict(record["v"]) if record else {}
+
+            if intent_id:
+                s.run(
+                    """
+                    MATCH (v:VLAN {vlanId: $vlanId})
+                    MATCH (i:Intent {intentId: $intentId})
+                    MERGE (v)-[:TRACES_TO]->(i)
+                    """,
+                    vlanId=vlan_id, intentId=intent_id,
+                )
+            return vlan
 
     # ------------------------------------------------------------------
     # L5 — Configuration

@@ -1,0 +1,15 @@
+{# SR Linux VLAN provisioning from L1 VLAN nodes.
+   Source: A3's `vlans` Cypher query, populated by A1's HLD ingestion.
+   Slice 2: each VLAN becomes a tagged subinterface on ethernet-1/1
+   plus a member of a per-VLAN bridge-instance. Slice 5 will replace
+   this with per-port assignment driven by HLD §6 port-config sections. #}
+{% for v in vlans -%}
+{# Skip VLANs without an integer ID (defensive, A1 already filters) #}
+{%- if v.vlan_id %}
+set / interface ethernet-1/1 subinterface {{ v.vlan_id }} type bridged
+set / interface ethernet-1/1 subinterface {{ v.vlan_id }} vlan encap single-tagged vlan-id {{ v.vlan_id }}
+set / interface ethernet-1/1 subinterface {{ v.vlan_id }} description "{{ v.vlan_name or "vlan-" ~ v.vlan_id }} (HLD-driven)"
+set / network-instance vlan-{{ v.vlan_id }} type mac-vrf
+set / network-instance vlan-{{ v.vlan_id }} interface ethernet-1/1.{{ v.vlan_id }}
+{% endif -%}
+{% endfor %}

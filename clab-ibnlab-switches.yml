@@ -1,0 +1,34 @@
+# IBN closed-loop — additive switch topology (Slice 2).
+#
+# This file deploys non-VyOS network devices alongside the netlab-generated
+# clab.yml. We keep it separate from clab.yml because clab.yml is regenerated
+# by `netlab create` from topology_ibn_lab.yml, and we don't want to lose
+# the switches every time the lab is bootstrapped.
+#
+# Deploy with:
+#   sudo containerlab deploy -t clab-ibnlab-switches.yml --reconfigure
+#
+# Tear down with:
+#   sudo containerlab destroy -t clab-ibnlab-switches.yml --cleanup
+#
+# Both this lab and the firewall lab share the netlab_mgmt management
+# network so all containers can reach each other (and Neo4j on the host).
+#
+# Slice 2 ships exactly one node — an SR Linux access switch — to prove
+# the multi-vendor pipeline. Slice 3 will introduce device provisioning
+# from the HLD itself.
+
+name: ibnlab-switches
+prefix: clab
+
+mgmt:
+  network: netlab_mgmt
+  ipv4-subnet: 192.168.100.0/24
+
+topology:
+  nodes:
+    acc-sw-01:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      type: ixrd2l
+      mgmt-ipv4: 192.168.100.121

@@ -277,9 +277,29 @@ class Agent1Ingestion(BaseAgent):
                 "origin":   origin,
             })
 
-            # Persist
+            # Persist Intent (L4)
             self._neo4j.create_intent(chosen)
             created.append(chosen.intentId)
+
+            # Persist L1 VLAN node so switches have data to render against.
+            # The VLAN is the operator-visible reality of the population —
+            # it lives in L1 Infrastructure even though the policy intent
+            # lives in L4. Linking via TRACES_TO keeps the audit trail
+            # queryable in either direction. (Slice 2)
+            try:
+                self._neo4j.create_vlan(
+                    vlan_id     = pop.vlan,
+                    name        = pop.name,
+                    model_state = "CANDIDATE",
+                    origin      = origin,
+                    intent_id   = chosen.intentId,
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "create_vlan failed for VLAN %s: %s — Intent kept, "
+                    "but switches will not see this VLAN",
+                    pop.vlan, exc,
+                )
 
             self._note(
                 candidate_space,
@@ -287,7 +307,8 @@ class Agent1Ingestion(BaseAgent):
                     f"HLD ingestion: Intent {chosen.intentId} from {origin}\n"
                     f"  Population: VLAN {pop.vlan} '{pop.name}'\n"
                     f"  Statement:  {chosen.statement}\n"
-                    f"  Operator chose: {answer}"
+                    f"  Operator chose: {answer}\n"
+                    f"  L1 VLAN {pop.vlan} created/updated"
                 ),
                 category="hld-ingestion",
             )
