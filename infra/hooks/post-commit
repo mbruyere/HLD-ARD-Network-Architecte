@@ -56,13 +56,24 @@ if [ -z "$PYTHON" ]; then
   exit 0
 fi
 
-# Source .env so the pipeline picks up Neo4j / Live-Memory / Graph-Memory
-# credentials. The .env file is gitignored, so this is safe.
+# Pull credentials from .env (gitignored). We can't naively `. .env`
+# because the file may contain unquoted values with whitespace
+# (e.g. MCP_SERVER_NAME=IBN Live Memory) which bash would try to exec.
+# Only export the keys the pipeline actually needs and quote the values.
 if [ -f "$REPO_ROOT/.env" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  . "$REPO_ROOT/.env"
-  set +a
+  for key in NEO4J_URI NEO4J_USER NEO4J_PASSWORD \
+             LIVE_MEMORY_URL LIVE_MEMORY_TOKEN \
+             GRAPH_MEMORY_URL GRAPH_MEMORY_TOKEN \
+             REDIS_URL; do
+    line=$(grep -E "^${key}=" "$REPO_ROOT/.env" | head -1)
+    if [ -n "$line" ]; then
+      val="${line#*=}"
+      # Strip surrounding quotes if present
+      val="${val%\"}"; val="${val#\"}"
+      val="${val%\'}"; val="${val#\'}"
+      export "${key}=${val}"
+    fi
+  done
 fi
 
 # Print a one-line operator notification BEFORE backgrounding so they
