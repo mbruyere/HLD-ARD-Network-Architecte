@@ -67,13 +67,16 @@ class TestMemoryCreate:
         client._call.assert_called_once()
         tool_name, args = client._call.call_args[0]
         assert tool_name == "memory_create"
+        # Graph-Memory's memory_create expects memory_id + name (not just name)
+        assert args["memory_id"] == "ibn-lifecycle"
         assert args["name"] == "ibn-lifecycle"
 
-    def test_t17_2_2_passes_ontology_path(self):
+    def test_t17_2_2_passes_ontology(self):
         client = _make_client()
-        client.memory_create("ibn-lifecycle", ontology_path="src/ibn/ontology/ibn_lifecycle_ontology.yaml")
+        client.memory_create("ibn-lifecycle", ontology="cloud")
         _, args = client._call.call_args[0]
-        assert args["ontology_path"] == "src/ibn/ontology/ibn_lifecycle_ontology.yaml"
+        # Graph-Memory accepts built-in ontology names (general, cloud, ...)
+        assert args["ontology"] == "cloud"
 
     def test_t17_2_3_returns_dict_on_empty_response(self):
         client = _make_client()
@@ -115,7 +118,7 @@ class TestMemoryManagement:
     def test_t17_3_4_memory_delete_calls_correct_tool(self):
         client = _make_client()
         client.memory_delete("ibn-lifecycle")
-        client._call.assert_called_with("memory_delete", {"name": "ibn-lifecycle"})
+        client._call.assert_called_with("memory_delete", {"memory_id": "ibn-lifecycle"})
 
 
 # ---------------------------------------------------------------------------
@@ -133,17 +136,21 @@ class TestGraphPush:
         assert tool_name == "memory_ingest"
 
     def test_t17_4_2_passes_memory_content_source(self):
+        import base64
         client = _make_client()
-        client._call.return_value = {"status": "ingested", "entities_extracted": 1}
+        client._call.return_value = {"status": "ok", "entity_types": {"Policy": 1}}
         client.graph_push(
             memory="ibn-lifecycle",
             content="Policy POL-001 enforces Guest isolation",
             source="ibn-candidate-001/policy-decisions",
         )
         _, args = client._call.call_args[0]
-        assert args["memory"] == "ibn-lifecycle"
-        assert "Guest isolation" in args["content"]
-        assert args["source"] == "ibn-candidate-001/policy-decisions"
+        # Graph-Memory's memory_ingest expects memory_id + content_base64 + filename
+        assert args["memory_id"] == "ibn-lifecycle"
+        decoded = base64.b64decode(args["content_base64"]).decode()
+        assert "Guest isolation" in decoded
+        # Filename is derived from the last segment of source; .md suffix appended
+        assert args["filename"] == "policy-decisions.md"
 
     def test_t17_4_3_returns_status_and_counts(self):
         client = _make_client()
@@ -163,11 +170,14 @@ class TestGraphPush:
         _, args = client._call.call_args[0]
         assert args["metadata"]["model_state"] == "DEPLOYED"
 
-    def test_t17_4_5_returns_default_on_empty_response(self):
+    def test_t17_4_5_returns_error_on_empty_response(self):
+        """Empty server response is surfaced as an error — the old
+        behaviour silently pretended the push succeeded with zero
+        entities, which masked real failures."""
         client = _make_client()
         client._call.return_value = {}
         result = client.graph_push("ibn-lifecycle", "content")
-        assert result["status"] == "ingested"
+        assert result["status"] == "error"
         assert result["entities_extracted"] == 0
 
     def test_t17_4_6_swallows_no_exception(self):
@@ -197,13 +207,14 @@ class TestGraphPushBatch:
         assert len(results) == 2
         assert client._call.call_count == 2
 
-    def test_t17_5_2_source_includes_space_and_bank_name(self):
+    def test_t17_5_2_filename_derived_from_bank_name(self):
         client = _make_client()
-        client._call.return_value = {"status": "ingested", "entities_extracted": 1}
+        client._call.return_value = {"status": "ok", "entity_types": {"Policy": 1}}
         banks = {"policy-decisions": "Policy POL-001"}
         client.graph_push_batch("ibn-lifecycle", banks, space_id="ibn-candidate-001")
         _, args = client._call.call_args[0]
-        assert args["source"] == "ibn-candidate-001/policy-decisions"
+        # memory_ingest takes a filename (last segment of source), not the full path
+        assert args["filename"] == "policy-decisions.md"
 
     def test_t17_5_3_empty_banks_returns_empty_list(self):
         client = _make_client()
@@ -234,15 +245,16 @@ class TestQuestionAnswer:
         client.question_answer("ibn-lifecycle", "What caused the last drift?")
         tool_name, args = client._call.call_args[0]
         assert tool_name == "question_answer"
-        assert args["memory"] == "ibn-lifecycle"
+        assert args["memory_id"] == "ibn-lifecycle"
         assert "drift" in args["question"]
 
-    def test_t17_6_2_passes_max_results(self):
+    def test_t17_6_2_passes_limit(self):
         client = _make_client()
         client._call.return_value = {"answer": "...", "sources": []}
         client.question_answer("ibn-lifecycle", "question?", max_results=3)
         _, args = client._call.call_args[0]
-        assert args["max_results"] == 3
+        # question_answer's MCP arg is "limit", not "max_results"
+        assert args["limit"] == 3
 
     def test_t17_6_3_returns_answer_and_sources(self):
         client = _make_client()
@@ -276,13 +288,14 @@ class TestMaintenance:
     def test_t17_7_2_storage_cleanup_specific_memory(self):
         client = _make_client()
         client.storage_cleanup("ibn-lifecycle")
-        client._call.assert_called_with("storage_cleanup", {"memory": "ibn-lifecycle"})
+        client._call.assert_called_with("storage_cleanup", {"memory_id": "ibn-lifecycle"})
 
     def test_t17_7_3_graph_stats_calls_correct_tool(self):
         client = _make_client()
         client._call.return_value = {"entities": 42, "relations": 17}
         result = client.graph_stats("ibn-lifecycle")
-        client._call.assert_called_with("graph_stats", {"memory": "ibn-lifecycle"})
+        # Graph-Memory exposes this as memory_stats (not graph_stats)
+        client._call.assert_called_with("memory_stats", {"memory_id": "ibn-lifecycle"})
         assert result["entities"] == 42
 
 

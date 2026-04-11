@@ -36,6 +36,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 from typing import Any, Optional
@@ -45,6 +46,13 @@ import httpx
 logger = logging.getLogger("ibn.graph_memory")
 
 NAMESPACE_PREFIX = "IBN_LIFECYCLE_"
+
+# Default ontology when none is specified. Graph-Memory ships with a fixed
+# set of built-in ontologies (general, cloud, legal, managed-services,
+# presales, software-development). The ibn-lifecycle ontology lives in
+# src/ibn/ontology/ibn_lifecycle_ontology.yaml but is not yet installed
+# in the Graph-Memory container, so we fall back to "general".
+DEFAULT_ONTOLOGY = "general"
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +100,11 @@ async def _call_mcp_tool(base_url: str, token: str, tool_name: str, arguments: d
         try:
             return json.loads(text)
         except (ValueError, TypeError):
+            # Not JSON — Graph-Memory returns plain-text error messages when
+            # MCP tool arguments fail pydantic validation. Surface them as a
+            # structured error dict so callers can detect the failure.
+            if text.startswith("Error"):
+                return {"status": "error", "message": text}
             return text
 
     return {}
@@ -135,7 +148,7 @@ class GraphMemoryClient:
     def memory_create(
         self,
         name: str,
-        ontology_path: Optional[str] = None,
+        ontology: str = DEFAULT_ONTOLOGY,
         description: str = "",
     ) -> dict:
         """
@@ -144,30 +157,48 @@ class GraphMemoryClient:
         Parameters
         ----------
         name:
-            Memory name (e.g. ``"ibn-lifecycle"``).  All Neo4j labels will be
-            prefixed with ``IBN_LIFECYCLE_`` automatically.
-        ontology_path:
-            Path to a YAML ontology file that guides entity/relation extraction.
-            If omitted, Graph-Memory uses its default general ontology.
+            Memory identifier (e.g. ``"ibn-lifecycle"``). Used as both the
+            MCP ``memory_id`` and display name.
+        ontology:
+            Name of a built-in Graph-Memory ontology. One of:
+            ``general``, ``cloud``, ``legal``, ``managed-services``,
+            ``presales``, ``software-development``. Defaults to ``general``.
         description:
             Human-readable description stored with the memory.
         """
-        args: dict = {"name": name, "description": description}
-        if ontology_path:
-            args["ontology_path"] = ontology_path
+        args: dict = {
+            "memory_id": name,
+            "name": name,
+            "ontology": ontology,
+        }
+        if description:
+            args["description"] = description
         result = self._call("memory_create", args)
         return result if isinstance(result, dict) else {"status": "created", "memory": name}
 
     def memory_list(self) -> list[dict]:
-        """Return all memories registered in Graph-Memory."""
+        """Return all memories registered in Graph-Memory.
+
+        Each entry is normalised to include both ``id`` and ``name`` keys so
+        callers can use either.
+        """
         result = self._call("memory_list", {})
         if isinstance(result, list):
-            return result
-        return result.get("memories", []) if isinstance(result, dict) else []
+            memories = result
+        elif isinstance(result, dict):
+            memories = result.get("memories", [])
+        else:
+            memories = []
+        # Graph-Memory returns ``id`` for the memory identifier — expose it
+        # as ``name`` too so callers that key on "name" still work.
+        for m in memories:
+            if "name" not in m and "id" in m:
+                m["name"] = m["id"]
+        return memories
 
     def memory_delete(self, name: str) -> dict:
         """Delete a memory namespace (removes all Neo4j nodes and Qdrant embeddings)."""
-        result = self._call("memory_delete", {"name": name})
+        result = self._call("memory_delete", {"memory_id": name})
         return result if isinstance(result, dict) else {}
 
     # ------------------------------------------------------------------
@@ -205,20 +236,54 @@ class GraphMemoryClient:
         -------
         dict with keys: ``status``, ``entities_extracted``, ``relations_extracted``.
         """
+        # Graph-Memory's memory_ingest expects base64-encoded content and a
+        # filename (not a "source" string). Derive the filename from the
+        # source path if provided, otherwise use a generic bank name.
+        filename = source.rsplit("/", 1)[-1] if source else "bank.md"
+        if not filename.endswith((".md", ".txt", ".pdf", ".docx")):
+            filename = f"{filename}.md"
+
         args: dict = {
-            "memory": memory,
-            "content": content,
-            "source": source,
+            "memory_id": memory,
+            "content_base64": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "filename": filename,
         }
         if metadata:
             args["metadata"] = metadata
+
         result = self._call("memory_ingest", args)
-        if isinstance(result, dict) and result:
-            result.setdefault("status", "ingested")
+
+        if not isinstance(result, dict) or not result:
+            return {"status": "error", "entities_extracted": 0, "relations_extracted": 0,
+                    "message": "empty response from memory_ingest"}
+
+        # Error responses from the server have status=error. Pass them through
+        # so callers can detect failures instead of silently reporting success.
+        if result.get("status") == "error":
             result.setdefault("entities_extracted", 0)
             result.setdefault("relations_extracted", 0)
+            logger.warning("memory_ingest failed: %s", result.get("message", result))
             return result
-        return {"status": "ingested", "entities_extracted": 0, "relations_extracted": 0}
+
+        # Graph-Memory returns entity_types / relation_types as
+        # {type_name: count} maps. Sum the counts to produce the
+        # flat entities_extracted / relations_extracted keys the rest
+        # of the codebase expects.
+        entity_types = result.get("entity_types") or {}
+        relation_types = result.get("relation_types") or {}
+        if isinstance(entity_types, dict):
+            result.setdefault("entities_extracted", sum(entity_types.values()))
+        else:
+            result.setdefault("entities_extracted", 0)
+        if isinstance(relation_types, dict):
+            result.setdefault("relations_extracted", sum(relation_types.values()))
+        else:
+            result.setdefault("relations_extracted", 0)
+        # Normalise server's "ok" / missing status to the "ingested" contract
+        # that the rest of the IBN codebase expects.
+        if result.get("status") != "error":
+            result["status"] = "ingested"
+        return result
 
     def graph_push_batch(
         self,
@@ -286,7 +351,7 @@ class GraphMemoryClient:
         -------
         dict with keys: ``answer`` (str) and ``sources`` (list[str]).
         """
-        args = {"memory": memory, "question": question, "max_results": max_results}
+        args = {"memory_id": memory, "question": question, "limit": max_results}
         result = self._call("question_answer", args)
         if isinstance(result, dict):
             result.setdefault("answer", "No relevant knowledge found.")
@@ -309,11 +374,11 @@ class GraphMemoryClient:
         """
         args = {}
         if memory:
-            args["memory"] = memory
+            args["memory_id"] = memory
         result = self._call("storage_cleanup", args)
         return result if isinstance(result, dict) else {}
 
     def graph_stats(self, memory: str) -> dict:
         """Return entity/relation counts and embedding statistics for a memory."""
-        result = self._call("graph_stats", {"memory": memory})
+        result = self._call("memory_stats", {"memory_id": memory})
         return result if isinstance(result, dict) else {}

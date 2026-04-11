@@ -117,6 +117,7 @@ Live-Memory spaces: `ibn-whatif-{id}`, `ibn-candidate-{id}`, `ibn-por-{version}`
 ### Done (implementation guides)
 - [x] Step 1 guide: Neo4j ontology bootstrap (`STEP1_Neo4j_Ontology_Bootstrap.md`)
 - [x] Step 2 guide: Live-Memory bootstrap (`STEP2_Live_Memory_Bootstrap.md`)
+- [x] Step 3 guide: Graph-Memory + Qdrant bootstrap (`STEP3_Graph_Memory_Bootstrap.md`)
 
 ---
 
@@ -127,12 +128,12 @@ Live-Memory spaces: `ibn-whatif-{id}`, `ibn-candidate-{id}`, `ibn-por-{version}`
 - [ ] Seed Neo4j with HLD data — sites, devices, VLANs, subnets, zones, segments, firewall pairs (~35 nodes L1–L3)
 - [ ] Validate schema with Campus profile Cypher constraints
 - [ ] Deploy Live-Memory MCP server with S3 backend, create 7 foundational spaces with consolidation rules (follow `STEP2_Live_Memory_Bootstrap.md`)
-- [ ] Configure event bus infrastructure — Neo4j CDC or Kafka/Redis, event routing to agents (guide TBD)
+- [x] Configure event bus infrastructure — Redis Streams event bus (`src/ibn/core/redis_event_bus.py` + `docker-compose.yml`)
 
 **Fulfillment agents (Steps 4–5):**
-- [ ] Implement Agent 1 (Ingestion) — structured template input, intent node creation (L4), conflict detection, `live_note()` integration (guide TBD)
-- [ ] Implement Agent 5 (Orchestration) — NetLab `topology.yml` generation, SSH config push, post-deploy verification, `live_note()` integration
-- [ ] Implement Agent 6 (Monitoring) — CLI/SNMP polling from NetLab, telemetry node creation (L5/L6), OperationalState updates, `live_note()` integration
+- [x] Implement Agent 1 (Ingestion) — structured template input, intent node creation (L4), conflict detection, `live_note()` integration (`src/ibn/agents/agent1_ingestion.py`)
+- [x] Implement Agent 5 (Orchestration) — NetLab `topology.yml` generation, SSH config push, post-deploy verification, `live_note()` integration (`src/ibn/agents/agent5_orchestration.py`)
+- [x] Implement Agent 6 (Monitoring) — CLI/SNMP polling from NetLab, telemetry node creation (L5/L6), OperationalState updates, `live_note()` integration (`src/ibn/agents/agent6_monitoring.py`)
 
 **Validation:**
 - [ ] End-to-end fulfillment path: Intent → SSoT (Neo4j) → Config → NetLab → Observed State → SSoT
@@ -143,21 +144,21 @@ Live-Memory spaces: `ibn-whatif-{id}`, `ibn-candidate-{id}`, `ibn-por-{version}`
 ### Phase 2 — Inner Loop (Months 3–6)
 
 **Assurance agents:**
-- [ ] Implement Agent 7 (Assessment) — desired vs. observed comparison, drift detection (RFC 9315 §5.2.2), root cause analysis via Neo4j dependency traversal, ComplianceAssessment/Incident nodes (L6)
-- [ ] Implement Agent 8 (Action) — severity classification, autonomy decision matrix (Info/Low/Medium = auto-remediate; High/Critical = escalate), rollback engine, Remediation nodes (L6)
+- [x] Implement Agent 7 (Assessment) — desired vs. observed comparison, drift detection (RFC 9315 §5.2.2), root cause analysis via Neo4j dependency traversal, ComplianceAssessment/Incident nodes (L6)
+- [x] Implement Agent 8 (Action) — severity classification, autonomy decision matrix (Info/Low/Medium = auto-remediate; High/Critical = escalate), rollback engine, Remediation nodes (L6)
 
 **Fulfillment agent:**
-- [ ] Implement Agent 3 (Policy→Config) — Jinja2 multi-vendor config rendering (VyOS first), per-device config diff, Configuration nodes (L5), firewall pipeline integration (8 Cypher extraction queries + 4-template chain)
+- [x] Implement Agent 3 (Policy→Config) — Jinja2 multi-vendor config rendering (VyOS first), per-device config diff, Configuration nodes (L5), firewall pipeline integration (8 Cypher extraction queries + 4-template chain)
 
 **Memory Tier 3:**
-- [ ] Deploy Graph-Memory + Qdrant — namespace-isolated Neo4j (`IBN_LIFECYCLE_*` labels), BGE-M3 1024-dim embeddings (guide TBD)
-- [ ] Create `ibn-lifecycle` memory with IBN Network Lifecycle ontology (4 entity families: Decisions, Incidents, Operations, Knowledge; 6+ relationship types — see §10.2.2)
-- [ ] Implement Live-Memory → Graph-Memory bridge — `graph_push()` for bank file ingestion
+- [x] Deploy Graph-Memory + Qdrant — namespace-isolated Neo4j (`IBN_LIFECYCLE_*` labels), BGE-M3 1024-dim embeddings (`STEP3_Graph_Memory_Bootstrap.md` + `docker-compose.yml`)
+- [x] Create `ibn-lifecycle` memory with IBN Network Lifecycle ontology (4 entity families: Decisions, Incidents, Operations, Knowledge; 6+ relationship types — see §10.2.2) (`src/ibn/ontology/ibn_lifecycle_ontology.yaml`)
+- [x] Implement Live-Memory → Graph-Memory bridge — `graph_push()` for bank file ingestion (`src/ibn/core/graph_memory_client.py`)
 
 **Consolidation pipeline:**
-- [ ] Implement LLM-driven `bank_consolidate()` with space-specific rules and trigger logic (note count thresholds, model state transitions)
-- [ ] Implement Graph-Memory ingestion — ontology-driven entity/relation extraction from bank files, BGE-M3 embedding generation
-- [ ] Implement consolidation lifecycle triggers per model state transitions (What-If→Candidate, Candidate→POR, POR→Deployed, Deployed→As-Built — see §10.5)
+- [x] Implement LLM-driven `bank_consolidate()` with space-specific rules and trigger logic (note count thresholds, model state transitions) (`src/ibn/core/consolidation_manager.py`)
+- [x] Implement Graph-Memory ingestion — ontology-driven entity/relation extraction from bank files, BGE-M3 embedding generation (`src/ibn/core/graph_memory_client.py` `graph_push()` / `graph_push_batch()`)
+- [x] Implement consolidation lifecycle triggers per model state transitions (What-If→Candidate, Candidate→POR, POR→Deployed, Deployed→As-Built — see §10.5) (`src/ibn/core/model_state_controller.py` + `ConsolidationManager`)
 
 **Validation:**
 - [ ] Close the inner loop: detect drift → assess → re-orchestrate → verify (autonomous self-correction on NetLab)
@@ -259,6 +260,24 @@ When starting a session:
 3. If working on agents: read `IBN_Closed_Loop_Architecture.md` §5 (agent decomposition) and §10 (three-tier memory)
 4. If working on firewall pipeline: read `firewall_pipeline/` directory
 5. If working on NetLab topology: read `topology_campus_large_site.yml` and `NetLab_Feasibility_Analysis.md`
+
+## Documenting fixes and debugging sessions
+
+After any non-trivial debugging, bug-hunt, or multi-step fix session, write
+a short markdown note to the repo root so the work is re-readable outside
+of the Claude Code conversation log. Do this **proactively** — don't wait
+to be asked.
+
+- Filename: `FIX_NOTES_<Topic>.md` at the repo root
+- Contents: date, context, the bugs found (with file:line references),
+  the fixes applied, before/after test results, and any known followups
+- Keep it terse — bullet points and tables, not prose essays
+- The goal is that someone reading the repo six months later can
+  reconstruct *why* the change was made, not just *what* changed
+
+Example: [FIX_NOTES_GraphMemory_Tier3.md](FIX_NOTES_GraphMemory_Tier3.md)
+(the Tier-3 pipeline fix from 2026-04-11 — MCP schema mismatch plus
+`LLMAAS_API_URL` missing `/v1` prefix).
 
 ## HLD Quick Reference
 

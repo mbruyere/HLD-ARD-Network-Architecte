@@ -203,8 +203,24 @@ class LiveMemoryClient:
         return result if isinstance(result, dict) else {}
 
     def bank_read_all(self, space: str) -> dict:
+        """Read every bank file in a space.
+
+        Returns a flat ``{filename: content}`` mapping. Live-Memory's raw
+        response wraps the files in a ``files`` list; we unwrap it so callers
+        can iterate ``bank_files.items()`` directly.
+        """
         result = self._call("bank_read_all", {"space_id": space})
-        return result if isinstance(result, dict) else {}
+        if not isinstance(result, dict):
+            return {}
+        files = result.get("files")
+        if isinstance(files, list):
+            return {
+                f["filename"]: f.get("content", "")
+                for f in files
+                if isinstance(f, dict) and "filename" in f
+            }
+        # Fallback: if the server already returned a flat mapping, pass through.
+        return result
 
     # ------------------------------------------------------------------
     # Tokens (admin only — requires admin token)
