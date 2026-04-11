@@ -57,6 +57,9 @@ DEFAULT_HLD_PATH = "Enterprise_Campus_Network_HLD (1).md"
 OUTER_LOOP_SPACE = "ibn-loop-outer"
 CANDIDATE_SPACE  = "ibn-candidate-001"
 
+# Slice 4 — pending plan markdown directory inside .git/
+PENDING_PLAN_DIR = ".git/ibn-pending-approval"
+
 
 # ---------------------------------------------------------------------------
 # Result containers
@@ -293,15 +296,105 @@ class HldCommitPipeline:
             payload={"policies": a2_results},
         ))
 
-        # Stage 3 — A4 planning (STUB)
-        a4_summary = self._a4_stub(intent_ids)
+        # Stage 3 — A4 planning (Slice 4 real implementation)
+        from ibn.agents.agent4_planning import Agent4Planning
+        a4 = Agent4Planning(self._neo4j, self._lm)
+        device_ids_for_plan = (
+            a1_device_result.get("devices_created", [])
+            + a1_device_result.get("devices_updated", [])
+            + a1_device_result.get("devices_to_retire", [])
+        )
+        a4_result = a4.run(
+            changeset    = changeset,
+            commit_sha   = commit,
+            intent_ids   = intent_ids,
+            device_ids   = device_ids_for_plan,
+            outer_space  = OUTER_LOOP_SPACE,
+        )
         stages.append(StageResult(
-            name="A4 planning (stub)",
+            name="A4 planning",
             status="ok",
-            summary=a4_summary,
-            payload={},
+            summary=(
+                f"plan={a4_result['planId']} severity={a4_result['severity']} "
+                f"blast={a4_result['blastRadius']} devices"
+            ),
+            payload=a4_result,
         ))
 
+        # Stage 3.5 — Approval gate (Slice 4)
+        # If IBN_AUTO_APPROVE is set, bypass entirely (Slice 1-3 behavior).
+        # Otherwise write a pending-plan markdown and exit.
+        auto_approve = os.environ.get("IBN_AUTO_APPROVE", "").strip() in ("1", "true", "yes")
+        if not auto_approve:
+            md_path = self._write_pending_plan_md(a4_result, commit, changeset)
+            stages.append(StageResult(
+                name="Approval gate",
+                status="ok",
+                summary=f"PENDING — {md_path}",
+                payload={"plan_path": md_path, "plan_id": a4_result["planId"]},
+            ))
+            self._note(
+                f"PENDING APPROVAL: plan {a4_result['planId']} for commit {commit}. "
+                f"Run `python -m ibn.tools.approve {commit}` to apply, "
+                f"`python -m ibn.tools.approve reject {commit} --reason '...'` to reject."
+            )
+            return self._final_result(
+                stages,
+                cycle_complete=False,
+                awaiting_approval=True,
+                pending_plan_path=md_path,
+            )
+
+        # Auto-approve path: mark the plan APPLIED before running A3-A5-A7
+        # so the audit trail still shows the plan even though no human
+        # touched it.
+        try:
+            self._neo4j.update_migration_plan_status(
+                a4_result["planId"], "APPROVED", operator="auto-approve"
+            )
+            self._neo4j.transition_artifacts_to_por(
+                intent_ids = intent_ids,
+                policy_ids = a4_result.get("policyIds", []),
+                config_ids = a4_result.get("configIds", []),
+            )
+        except Exception as exc:
+            self._log.warning("auto-approve transition failed: %s", exc)
+
+        # Stages 4-6 (A3 render → A5 deploy → A7 assess) run via the
+        # shared helper that the resume_from_approval path also uses.
+        self._run_render_deploy_assess(
+            stages       = stages,
+            intent_ids   = intent_ids,
+            commit       = commit,
+        )
+        # Mark the plan APPLIED after the rest of the loop runs
+        try:
+            self._neo4j.update_migration_plan_status(a4_result["planId"], "APPLIED")
+        except Exception as exc:
+            self._log.warning("mark APPLIED failed: %s", exc)
+
+        self._note(
+            f"HLD commit {commit}: pipeline complete (auto-approved) — "
+            f"{len(intent_ids)} new intents flowed end-to-end"
+        )
+        return self._final_result(stages, cycle_complete=True)
+
+    # ------------------------------------------------------------------
+    # Render → deploy → assess helper (shared by run() and resume_from_approval())
+    # ------------------------------------------------------------------
+
+    def _run_render_deploy_assess(
+        self,
+        stages: list,
+        intent_ids: list[str],
+        commit: str,
+    ) -> None:
+        """Stages 4-6: A3 render, A5 deploy, A7 assessment.
+
+        Mutates ``stages`` by appending one StageResult per agent. Used
+        by both the auto-approve path in run() and the post-approval
+        resume path.
+        """
         # Stage 4 — A3 render configs
         from ibn.agents.agent3_policy_config import Agent3PolicyConfig
         a3 = Agent3PolicyConfig(self._neo4j, self._lm)
@@ -356,7 +449,7 @@ class HldCommitPipeline:
                 self._note(
                     f"HLD pipeline FAILED at A5 for intent {iid}: {exc}"
                 )
-                return self._final_result(stages, cycle_complete=False)
+                return  # helper exits early; caller checks the stages list
 
         # Slice 2: surface A5's internal status. A5 returns FAILED on
         # rollback without raising, so the previous "always ok" was masking
@@ -390,12 +483,6 @@ class HldCommitPipeline:
             summary=f"{len(a7_results)} assessments",
             payload={"assessments": a7_results},
         ))
-
-        self._note(
-            f"HLD commit {commit}: pipeline complete — "
-            f"{len(intent_ids)} new intents flowed end-to-end"
-        )
-        return self._final_result(stages, cycle_complete=True)
 
     # ------------------------------------------------------------------
     # Stage helpers
@@ -440,27 +527,126 @@ class HldCommitPipeline:
 
         return results
 
-    def _a4_stub(self, intent_ids: list[str]) -> str:
-        """Slice 1 stub for Agent 4 planning.
+    # ------------------------------------------------------------------
+    # Pending-plan markdown writer (Slice 4)
+    # ------------------------------------------------------------------
 
-        Counts the firewall devices that will be touched and emits a
-        'blast radius' note. No actual gating — Slice 4 will replace
-        this with real What-If analysis and a PR-based approval gate.
+    def _write_pending_plan_md(self, plan_result: dict, commit: str, changeset) -> str:
+        """Write a human-readable pending-plan markdown to .git/ibn-pending-approval/.
+
+        Returns the absolute path to the file. The post-commit hook
+        prints this path on stdout so the operator sees it immediately.
         """
-        try:
-            rows = self._neo4j.run_query(
-                """
-                MATCH (d:Device)
-                WHERE d.deviceRole = 'FIREWALL' AND d.modelState IN ['POR','DEPLOYED']
-                RETURN count(d) AS n
-                """
+        from pathlib import Path
+
+        Path(PENDING_PLAN_DIR).mkdir(parents=True, exist_ok=True)
+        sha_short = (commit or "unknown")[:8]
+        path = Path(PENDING_PLAN_DIR) / f"{sha_short}.md"
+
+        device_list = "\n".join(f"  - `{d}`" for d in plan_result.get("deviceIds", [])) or "  - (none)"
+        intent_list = "\n".join(f"  - `{i}`" for i in plan_result.get("intentIds", [])) or "  - (none)"
+
+        body = f"""# Pending Plan {plan_result['planId']}
+
+**Commit:** `{commit}`
+**Severity:** **{plan_result['severity']}**
+**Blast radius:** {plan_result['blastRadius']} devices
+
+## Summary
+{plan_result['summary']}
+
+## Inverse plan (rollback summary)
+{plan_result.get('inverseSummary', '(not generated)')}
+
+## Affected devices
+{device_list}
+
+## New intents
+{intent_list}
+
+## Changeset detail
+- populations added: {len(changeset.populations_added)}
+- populations modified: {len(changeset.populations_modified)}
+- populations removed: {len(changeset.populations_removed)}
+- devices added: {len(changeset.devices_added)}
+- devices modified: {len(changeset.devices_modified)}
+- devices removed: {len(changeset.devices_removed)}
+
+## To approve
+```
+python -m ibn.tools.approve {commit}
+```
+
+## To reject
+```
+python -m ibn.tools.approve reject {commit} --reason "describe why"
+```
+"""
+        path.write_text(body, encoding="utf-8")
+        return str(path.resolve())
+
+    # ------------------------------------------------------------------
+    # Resume from approval (Slice 4)
+    # ------------------------------------------------------------------
+
+    def resume_from_approval(self, plan_id: str) -> dict:
+        """Run A3 → A5 → A7 against an APPROVED plan's artifacts.
+
+        Used by the approval CLI after the operator runs `ibn approve`.
+        Re-derives all state from Neo4j (the CANDIDATE artifacts are
+        already there) and runs the back half of the pipeline.
+
+        Side effects:
+          - Marks the plan APPLIED on success
+          - Returns the same shape as ``run()`` so the CLI can print
+            stage results uniformly
+        """
+        self._ensure_clients()
+        self._ensure_outer_space()
+
+        plan = self._neo4j.get_migration_plan(plan_id)
+        if not plan:
+            raise ValueError(f"MigrationPlan {plan_id} not found")
+        if plan.get("status") not in ("APPROVED", "PENDING"):
+            # PENDING is allowed because the CLI calls update_status
+            # immediately before this. We tolerate either.
+            raise ValueError(
+                f"Plan {plan_id} status is {plan.get('status')}; "
+                f"expected APPROVED or PENDING"
             )
-            n = rows[0]["n"] if rows else 0
-        except Exception:
-            n = 0
-        msg = f"blast radius: {n} firewall devices, {len(intent_ids)} new intents"
-        self._note(f"A4 (stub): {msg}")
-        return msg
+
+        intent_ids = plan.get("intentIds") or []
+        commit = plan.get("commitSha", "unknown")
+
+        stages: list[StageResult] = []
+        stages.append(StageResult(
+            name="resume",
+            status="ok",
+            summary=f"plan={plan_id} commit={commit[:8]} intents={len(intent_ids)}",
+            payload={"plan": plan},
+        ))
+
+        if not intent_ids:
+            self._note(
+                f"resume_from_approval: plan {plan_id} has no intents — nothing to deploy"
+            )
+            return self._final_result(stages, cycle_complete=True)
+
+        self._run_render_deploy_assess(
+            stages     = stages,
+            intent_ids = intent_ids,
+            commit     = commit,
+        )
+
+        # Mark the plan APPLIED if the back-half succeeded
+        any_failed = any(s.status == "error" for s in stages)
+        if not any_failed:
+            try:
+                self._neo4j.update_migration_plan_status(plan_id, "APPLIED")
+            except Exception as exc:
+                self._log.warning("mark APPLIED failed: %s", exc)
+
+        return self._final_result(stages, cycle_complete=not any_failed)
 
     # ------------------------------------------------------------------
     # Live-Memory wiring
@@ -491,9 +677,17 @@ class HldCommitPipeline:
     # Result formatting
     # ------------------------------------------------------------------
 
-    def _final_result(self, stages: list[StageResult], cycle_complete: bool) -> dict:
+    def _final_result(
+        self,
+        stages: list[StageResult],
+        cycle_complete: bool,
+        awaiting_approval: bool = False,
+        pending_plan_path: Optional[str] = None,
+    ) -> dict:
         return {
             "cycle_complete": cycle_complete,
+            "awaiting_approval": awaiting_approval,
+            "pending_plan_path": pending_plan_path,
             "stages": [
                 {
                     "name":    s.name,

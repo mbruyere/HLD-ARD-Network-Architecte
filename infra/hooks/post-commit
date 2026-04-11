@@ -64,7 +64,7 @@ if [ -f "$REPO_ROOT/.env" ]; then
   for key in NEO4J_URI NEO4J_USER NEO4J_PASSWORD \
              LIVE_MEMORY_URL LIVE_MEMORY_TOKEN \
              GRAPH_MEMORY_URL GRAPH_MEMORY_TOKEN \
-             REDIS_URL; do
+             REDIS_URL IBN_AUTO_APPROVE; do
     line=$(grep -E "^${key}=" "$REPO_ROOT/.env" | head -1)
     if [ -n "$line" ]; then
       val="${line#*=}"
@@ -80,6 +80,13 @@ fi
 # see something happen immediately after `git commit` returns.
 echo "[ibn-hook] HLD changed in $COMMIT_SHA — closed-loop pipeline running in background"
 echo "[ibn-hook] tail -f $LOG_FILE  to follow"
+if [ "${IBN_AUTO_APPROVE:-0}" = "1" ]; then
+  echo "[ibn-hook] (auto-approve enabled — pipeline will run end-to-end)"
+else
+  echo "[ibn-hook] After A4 planning the pipeline will pause for human approval."
+  echo "[ibn-hook] Look for: .git/ibn-pending-approval/${COMMIT_SHA}.md"
+  echo "[ibn-hook] Then run:  python -m ibn.tools.approve $COMMIT_SHA"
+fi
 
 # Background the pipeline. nohup + setsid detaches it from the terminal
 # so the operator can keep working.

@@ -23,6 +23,10 @@ from pathlib import Path
 
 import pytest
 
+# Slice 4: bypass the approval gate for these tests so the auto-flow
+# behavior they were written against (Slice 1's) is preserved.
+os.environ["IBN_AUTO_APPROVE"] = "1"
+
 
 # ── Skip guards ────────────────────────────────────────────────────────────
 

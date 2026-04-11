@@ -28,6 +28,7 @@ from ibn.core.models import (
     Intent, Configuration, DeploymentEvent,
     Telemetry, OperationalState, Alert, AgentExecution,
     Device, LifecycleEvent, DeviceLifecycleState,
+    MigrationPlan, MigrationPlanStatus,
 )
 
 
@@ -355,6 +356,192 @@ class Neo4jClient:
             )
             record = result.single()
             return dict(record["d"]) if record else None
+
+    # ------------------------------------------------------------------
+    # L7 — MigrationPlan  (output of Agent 4, Slice 4)
+    # ------------------------------------------------------------------
+
+    def create_migration_plan(self, plan: MigrationPlan) -> dict:
+        """Create or replace a MigrationPlan node in L7.
+
+        Idempotent on planId. Re-running the pipeline against the same
+        commit produces the same plan id and overwrites the previous
+        plan's state. The intent/policy/config/device id lists are
+        stored as Neo4j list properties so the resume path can read
+        them back as a single query.
+        """
+        with self._session() as s:
+            result = s.run(
+                """
+                MERGE (mp:MigrationPlan {planId: $planId})
+                SET mp.commitSha       = $commitSha,
+                    mp.intentIds       = $intentIds,
+                    mp.policyIds       = $policyIds,
+                    mp.configIds       = $configIds,
+                    mp.deviceIds       = $deviceIds,
+                    mp.blastRadius     = $blastRadius,
+                    mp.severity        = $severity,
+                    mp.summary         = $summary,
+                    mp.inverseSummary  = $inverseSummary,
+                    mp.status          = $status,
+                    mp.createdAt       = coalesce(mp.createdAt, $createdAt),
+                    mp.approvedAt      = $approvedAt,
+                    mp.approvedBy      = $approvedBy,
+                    mp.appliedAt       = $appliedAt,
+                    mp.rejectedAt      = $rejectedAt,
+                    mp.rejectedBy      = $rejectedBy,
+                    mp.rejectedReason  = $rejectedReason
+                RETURN mp
+                """,
+                planId         = plan.planId,
+                commitSha      = plan.commitSha,
+                intentIds      = plan.intentIds,
+                policyIds      = plan.policyIds,
+                configIds      = plan.configIds,
+                deviceIds      = plan.deviceIds,
+                blastRadius    = plan.blastRadius,
+                severity       = plan.severity.value,
+                summary        = plan.summary,
+                inverseSummary = plan.inverseSummary,
+                status         = plan.status.value,
+                createdAt      = plan.createdAt,
+                approvedAt     = plan.approvedAt,
+                approvedBy     = plan.approvedBy,
+                appliedAt      = plan.appliedAt,
+                rejectedAt     = plan.rejectedAt,
+                rejectedBy     = plan.rejectedBy,
+                rejectedReason = plan.rejectedReason,
+            )
+            record = result.single()
+            return dict(record["mp"]) if record else {}
+
+    def get_migration_plan(self, plan_id: str) -> Optional[dict]:
+        with self._session() as s:
+            result = s.run(
+                "MATCH (mp:MigrationPlan {planId: $id}) RETURN mp",
+                id=plan_id,
+            )
+            record = result.single()
+            return dict(record["mp"]) if record else None
+
+    def get_migration_plan_by_commit(self, commit_sha: str) -> Optional[dict]:
+        with self._session() as s:
+            result = s.run(
+                """
+                MATCH (mp:MigrationPlan {commitSha: $sha})
+                RETURN mp ORDER BY mp.createdAt DESC LIMIT 1
+                """,
+                sha=commit_sha,
+            )
+            record = result.single()
+            return dict(record["mp"]) if record else None
+
+    def list_pending_migration_plans(self) -> list[dict]:
+        with self._session() as s:
+            result = s.run(
+                "MATCH (mp:MigrationPlan {status: 'PENDING'}) "
+                "RETURN mp ORDER BY mp.createdAt DESC"
+            )
+            return [dict(r["mp"]) for r in result]
+
+    def update_migration_plan_status(
+        self,
+        plan_id: str,
+        status: str,
+        operator: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        """Move a MigrationPlan through its state machine and stamp the actor."""
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._session() as s:
+            if status == "APPROVED":
+                s.run(
+                    """
+                    MATCH (mp:MigrationPlan {planId: $id})
+                    SET mp.status = 'APPROVED',
+                        mp.approvedAt = $ts,
+                        mp.approvedBy = $op
+                    """,
+                    id=plan_id, ts=ts, op=operator,
+                )
+            elif status == "APPLIED":
+                s.run(
+                    "MATCH (mp:MigrationPlan {planId: $id}) "
+                    "SET mp.status = 'APPLIED', mp.appliedAt = $ts",
+                    id=plan_id, ts=ts,
+                )
+            elif status == "REJECTED":
+                s.run(
+                    """
+                    MATCH (mp:MigrationPlan {planId: $id})
+                    SET mp.status = 'REJECTED',
+                        mp.rejectedAt = $ts,
+                        mp.rejectedBy = $op,
+                        mp.rejectedReason = $reason
+                    """,
+                    id=plan_id, ts=ts, op=operator, reason=reason,
+                )
+            elif status == "SUPERSEDED":
+                s.run(
+                    "MATCH (mp:MigrationPlan {planId: $id}) "
+                    "SET mp.status = 'SUPERSEDED'",
+                    id=plan_id,
+                )
+            else:
+                raise ValueError(f"Unknown migration plan status: {status}")
+
+    def transition_artifacts_to_por(
+        self,
+        intent_ids: list[str],
+        policy_ids: list[str],
+        config_ids: list[str],
+    ) -> None:
+        """Bulk-move CANDIDATE artifacts to POR after operator approval."""
+        with self._session() as s:
+            if intent_ids:
+                s.run(
+                    "MATCH (i:Intent) WHERE i.intentId IN $ids "
+                    "SET i.modelState = 'POR'",
+                    ids=intent_ids,
+                )
+            if policy_ids:
+                s.run(
+                    "MATCH (p:Policy) WHERE p.policyId IN $ids "
+                    "SET p.modelState = 'POR'",
+                    ids=policy_ids,
+                )
+                s.run(
+                    "MATCH (r:FirewallRule) WHERE r.policyId IN $ids "
+                    "SET r.modelState = 'POR'",
+                    ids=policy_ids,
+                )
+            if config_ids:
+                s.run(
+                    "MATCH (c:Configuration) WHERE c.configId IN $ids "
+                    "SET c.modelState = 'POR'",
+                    ids=config_ids,
+                )
+
+    def reject_artifacts(
+        self,
+        intent_ids: list[str],
+        policy_ids: list[str],
+    ) -> None:
+        """Mark CANDIDATE artifacts as REJECTED (kept in Neo4j for audit)."""
+        with self._session() as s:
+            if intent_ids:
+                s.run(
+                    "MATCH (i:Intent) WHERE i.intentId IN $ids "
+                    "SET i.status = 'REJECTED'",
+                    ids=intent_ids,
+                )
+            if policy_ids:
+                s.run(
+                    "MATCH (p:Policy) WHERE p.policyId IN $ids "
+                    "SET p.modelState = 'REJECTED'",
+                    ids=policy_ids,
+                )
 
     # ------------------------------------------------------------------
     # L8 — LifecycleEvent  (Slice 3)

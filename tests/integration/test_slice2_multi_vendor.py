@@ -28,6 +28,9 @@ from pathlib import Path
 
 import pytest
 
+# Slice 4: bypass the approval gate so Slice 2's auto-flow assertions hold.
+os.environ["IBN_AUTO_APPROVE"] = "1"
+
 
 # ── Skip guards ────────────────────────────────────────────────────────────
 

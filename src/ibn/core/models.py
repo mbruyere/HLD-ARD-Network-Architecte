@@ -46,6 +46,35 @@ class DeviceLifecycleState(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# Migration plan / approval gate (Slice 4)
+# ---------------------------------------------------------------------------
+
+class MigrationPlanStatus(str, Enum):
+    """L7 MigrationPlan status — drives the approval state machine.
+
+    PENDING     — A4 generated the plan, waiting for human signoff
+    APPROVED    — operator ran `ibn approve`; CANDIDATE→POR transitioned
+    APPLIED     — A3-A5-A7 ran successfully against the POR artifacts
+    REJECTED    — operator ran `ibn reject`; artifacts archived
+    SUPERSEDED  — replaced by a newer plan against the same intents
+    """
+    PENDING    = "PENDING"
+    APPROVED   = "APPROVED"
+    APPLIED    = "APPLIED"
+    REJECTED   = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class PlanSeverity(str, Enum):
+    """Slice 4 severity classifier output."""
+    INFO     = "INFO"
+    LOW      = "LOW"
+    MEDIUM   = "MEDIUM"
+    HIGH     = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+# ---------------------------------------------------------------------------
 # Severity
 # ---------------------------------------------------------------------------
 
@@ -181,6 +210,43 @@ class LifecycleEvent:
     timestamp:    str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     payload:      Optional[str] = None       # free-form JSON or text
     errorMessage: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# L7 — MigrationPlan  (Slice 4)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MigrationPlan:
+    """L7 MigrationPlan node — output of Agent 4 (Planning).
+
+    A migration plan is the unit of operator review. It bundles
+    everything Agent 1+2+Provisioning produced from a single HLD
+    commit and asks "should this become reality?". Approval
+    transitions the referenced CANDIDATE artifacts to POR. Rejection
+    archives them.
+
+    The ``commitSha`` field is the git SHA the plan was generated from
+    (used as the correlation key by the approve/reject CLI).
+    """
+    planId:           str
+    commitSha:        str
+    intentIds:        list[str]
+    policyIds:        list[str]
+    configIds:        list[str]
+    deviceIds:        list[str]
+    blastRadius:      int                       # number of devices touched
+    severity:         PlanSeverity
+    summary:          str                       # one-line human description
+    inverseSummary:   str                       # one-line rollback description
+    status:           MigrationPlanStatus = MigrationPlanStatus.PENDING
+    createdAt:        str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    approvedAt:       Optional[str] = None
+    approvedBy:       Optional[str] = None
+    appliedAt:        Optional[str] = None
+    rejectedAt:       Optional[str] = None
+    rejectedBy:       Optional[str] = None
+    rejectedReason:   Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
