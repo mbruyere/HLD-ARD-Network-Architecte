@@ -75,17 +75,26 @@ _QUERIES = {
                v.name        AS vlan_name
         ORDER BY v.vlanId
     """,
+    # Reads FirewallRule nodes written by Agent 2 (Slice 1 schema:
+    # sourceZone/destZone, parent Policy via (Policy)-[:CONTAINS]->(rule)).
+    # Also matches the legacy seed schema (srcZone/dstZone) via coalesce
+    # so older fixture data still renders. Result columns are aliased to
+    # src_zone / dst_zone so existing Jinja2 templates work unchanged.
     "policies": """
         MATCH (fr:FirewallRule)
         WHERE fr.modelState IN ['POR','CANDIDATE']
-        OPTIONAL MATCH (fr)-[:GENERATES_POLICY]->(p:Policy)
-        RETURN fr.ruleId      AS rule_id,
-               fr.name        AS rule_name,
-               fr.srcZone     AS src_zone,
-               fr.dstZone     AS dst_zone,
-               fr.action      AS action,
-               fr.priority    AS priority,
-               p.policyId     AS policy_id
+        OPTIONAL MATCH (p:Policy)-[:CONTAINS]->(fr)
+        RETURN fr.ruleId                                AS rule_id,
+               coalesce(fr.name, fr.ruleId)             AS rule_name,
+               coalesce(fr.sourceZone, fr.srcZone)      AS src_zone,
+               coalesce(fr.destZone,   fr.dstZone)      AS dst_zone,
+               fr.action                                AS action,
+               fr.priority                              AS priority,
+               fr.protocol                              AS protocol,
+               fr.destPort                              AS dest_port,
+               fr.description                           AS description,
+               p.policyId                               AS policy_id,
+               p.intentId                               AS intent_id
         ORDER BY fr.priority
     """,
     "intents": """

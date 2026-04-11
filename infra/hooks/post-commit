@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# IBN closed-loop post-commit hook.
+#
+# Triggers the HLD-driven pipeline whenever the HLD file appears in the
+# commit that just landed. The pipeline runs in the background so the
+# operator's terminal returns immediately after `git commit` completes.
+#
+# Installed by: python -m ibn.tools.install_hooks
+#
+# Skipped automatically when:
+#   - the HLD file is not in the commit
+#   - IBN_SKIP_HOOK=1 is set in the environment
+#   - the commit is on a detached HEAD or a rebase/merge in progress
+#
+# Logs go to: .git/ibn-hld-pipeline.log
+
+set -u
+
+if [ "${IBN_SKIP_HOOK:-0}" = "1" ]; then
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$REPO_ROOT" ]; then
+  exit 0
+fi
+
+# Skip during rebases / cherry-picks / merges to avoid pipeline storms
+if [ -d "$REPO_ROOT/.git/rebase-merge" ] || \
+   [ -d "$REPO_ROOT/.git/rebase-apply" ] || \
+   [ -f "$REPO_ROOT/.git/MERGE_HEAD" ] || \
+   [ -f "$REPO_ROOT/.git/CHERRY_PICK_HEAD" ]; then
+  exit 0
+fi
+
+HLD_PATH="${IBN_HLD_PATH:-Enterprise_Campus_Network_HLD (1).md}"
+LOG_FILE="$REPO_ROOT/.git/ibn-hld-pipeline.log"
+
+# Quick filter: did this commit touch the HLD?
+CHANGED=$(git -C "$REPO_ROOT" show --name-only --pretty=format: HEAD 2>/dev/null \
+          | grep -Fx "$HLD_PATH" || true)
+if [ -z "$CHANGED" ]; then
+  exit 0
+fi
+
+COMMIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
+
+# Find a Python interpreter — prefer the project venv if it exists
+if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+  PYTHON="$REPO_ROOT/.venv/bin/python"
+else
+  PYTHON="$(command -v python3 || command -v python)"
+fi
+if [ -z "$PYTHON" ]; then
+  echo "[ibn-hook] No python interpreter found — pipeline NOT triggered" >&2
+  exit 0
+fi
+
+# Print a one-line operator notification BEFORE backgrounding so they
+# see something happen immediately after `git commit` returns.
+echo "[ibn-hook] HLD changed in $COMMIT_SHA — closed-loop pipeline running in background"
+echo "[ibn-hook] tail -f $LOG_FILE  to follow"
+
+# Background the pipeline. nohup + setsid detaches it from the terminal
+# so the operator can keep working.
+(
+  cd "$REPO_ROOT"
+  export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
+  exec >>"$LOG_FILE" 2>&1
+  echo
+  echo "===== $(date -Iseconds)  HLD pipeline run for commit $COMMIT_SHA ====="
+  nohup setsid "$PYTHON" -m ibn.pipeline.hld_commit \
+    --commit "$COMMIT_SHA" \
+    --hld "$HLD_PATH" \
+    --require-hld-changed \
+    -v &
+) </dev/null >/dev/null 2>&1
+
+exit 0

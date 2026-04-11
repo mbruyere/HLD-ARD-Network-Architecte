@@ -43,7 +43,13 @@ class Severity(str, Enum):
 
 @dataclass
 class Intent:
-    """L4 Intent node — output of Agent 1 (Ingestion)."""
+    """L4 Intent node — output of Agent 1 (Ingestion).
+
+    The ``origin`` field traces the Intent back to its source-of-truth.
+    For HLD-driven flow it should be set to ``HLD:<file>:<line>`` so the
+    pipeline can diff against the document and avoid duplicate creation
+    on re-commit. For operator-typed intents the field stays None.
+    """
     intentId:    str
     statement:   str
     type:        str                        # e.g. "access-policy"
@@ -55,9 +61,54 @@ class Intent:
     createdAt:   str        = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     authorId:    Optional[str] = None
     priority:    int        = 100
+    origin:      Optional[str] = None       # e.g. "HLD:Enterprise_Campus_Network_HLD.md:3176"
 
 
 VALID_INTENT_ACTIONS = {"permit", "deny", "redirect", "rate-limit"}
+
+
+@dataclass
+class Policy:
+    """L4 Policy node — output of Agent 2 (Intent→Policy).
+
+    A Policy is the decomposition of one Intent into a named bundle of
+    enforcement rules. One Intent typically produces one Policy with
+    multiple FirewallRules attached.
+    """
+    policyId:    str
+    name:        str                        # e.g. "POL-CONTRACTOR-ACCESS"
+    type:        str                        # e.g. "access-policy" | "qos-policy"
+    intentId:    str                        # parent Intent that produced this Policy
+    modelState:  ModelState = ModelState.CANDIDATE
+    createdAt:   str        = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    description: Optional[str] = None
+
+
+@dataclass
+class FirewallRule:
+    """L4 FirewallRule node — output of Agent 2 (Intent→Policy).
+
+    Vendor-neutral firewall rule. Maps to one or more vendor-specific
+    statements at render time (Agent 3): VyOS ``set firewall name``,
+    Cisco ASA ``access-list``, Palo Alto ``security rule``, etc.
+    """
+    ruleId:      str
+    policyId:    str                        # parent Policy
+    sourceZone:  str                        # e.g. "USER" | "DMZ_INFRA"
+    destZone:    str                        # e.g. "INTERNET"
+    action:      str                        # permit | deny
+    sourceVlan:  Optional[int] = None       # may be None for zone-wide rules
+    destVlan:    Optional[int] = None
+    protocol:    Optional[str] = None       # tcp | udp | icmp | any
+    sourcePort:  Optional[str] = None       # "any" | "80" | "1024-65535"
+    destPort:    Optional[str] = None
+    priority:    int        = 100
+    modelState:  ModelState = ModelState.CANDIDATE
+    createdAt:   str        = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    description: Optional[str] = None
+
+
+VALID_FIREWALL_RULE_ACTIONS = {"permit", "deny"}
 
 
 # ---------------------------------------------------------------------------

@@ -69,7 +69,12 @@ class Neo4jClient:
     # ------------------------------------------------------------------
 
     def create_intent(self, intent: Intent) -> dict:
-        """Create an Intent node in L4.  Returns the created node properties."""
+        """Create an Intent node in L4.  Returns the created node properties.
+
+        Idempotent on ``intentId``: re-running with the same intentId is a
+        no-op (MERGE + ON CREATE). The ``origin`` field is also written so
+        HLD-driven intents can be looked up by source line later.
+        """
         with self._session() as s:
             result = s.run(
                 """
@@ -84,7 +89,8 @@ class Neo4jClient:
                     i.modelState  = $modelState,
                     i.createdAt   = $createdAt,
                     i.authorId    = $authorId,
-                    i.priority    = $priority
+                    i.priority    = $priority,
+                    i.origin      = $origin
                 RETURN i
                 """,
                 intentId   = intent.intentId,
@@ -98,6 +104,7 @@ class Neo4jClient:
                 createdAt  = intent.createdAt,
                 authorId   = intent.authorId,
                 priority   = intent.priority,
+                origin     = intent.origin,
             )
             record = result.single()
             return dict(record["i"]) if record else {}
@@ -116,6 +123,95 @@ class Neo4jClient:
                 "MATCH (i:Intent {status: 'ACTIVE', modelState: 'POR'}) RETURN i"
             )
             return [dict(r["i"]) for r in result]
+
+    def get_intent_by_origin(self, origin: str) -> Optional[dict]:
+        """Look up an Intent by its origin string (e.g. ``HLD:file:line``).
+
+        Used by Agent 1's HLD ingestion phase to detect re-commits and avoid
+        creating duplicate Intent nodes when the operator commits the HLD
+        without actually changing it.
+        """
+        with self._session() as s:
+            result = s.run(
+                "MATCH (i:Intent {origin: $origin}) RETURN i LIMIT 1",
+                origin=origin,
+            )
+            record = result.single()
+            return dict(record["i"]) if record else None
+
+    # ------------------------------------------------------------------
+    # L4 — Policy & FirewallRule  (output of Agent 2)
+    # ------------------------------------------------------------------
+
+    def create_policy(self, policy) -> dict:
+        """Create or update a Policy node in L4 (idempotent on policyId)."""
+        with self._session() as s:
+            result = s.run(
+                """
+                MERGE (p:Policy {policyId: $policyId})
+                SET p.name        = $name,
+                    p.type        = $type,
+                    p.intentId    = $intentId,
+                    p.modelState  = $modelState,
+                    p.createdAt   = $createdAt,
+                    p.description = $description
+                WITH p
+                MATCH (i:Intent {intentId: $intentId})
+                MERGE (i)-[:DECOMPOSED_INTO]->(p)
+                RETURN p
+                """,
+                policyId    = policy.policyId,
+                name        = policy.name,
+                type        = policy.type,
+                intentId    = policy.intentId,
+                modelState  = policy.modelState.value,
+                createdAt   = policy.createdAt,
+                description = policy.description,
+            )
+            record = result.single()
+            return dict(record["p"]) if record else {}
+
+    def create_firewall_rule(self, rule) -> dict:
+        """Create or update a FirewallRule node in L4 (idempotent on ruleId)."""
+        with self._session() as s:
+            result = s.run(
+                """
+                MERGE (r:FirewallRule {ruleId: $ruleId})
+                SET r.policyId    = $policyId,
+                    r.sourceZone  = $sourceZone,
+                    r.destZone    = $destZone,
+                    r.action      = $action,
+                    r.sourceVlan  = $sourceVlan,
+                    r.destVlan    = $destVlan,
+                    r.protocol    = $protocol,
+                    r.sourcePort  = $sourcePort,
+                    r.destPort    = $destPort,
+                    r.priority    = $priority,
+                    r.modelState  = $modelState,
+                    r.createdAt   = $createdAt,
+                    r.description = $description
+                WITH r
+                MATCH (p:Policy {policyId: $policyId})
+                MERGE (p)-[:CONTAINS]->(r)
+                RETURN r
+                """,
+                ruleId      = rule.ruleId,
+                policyId    = rule.policyId,
+                sourceZone  = rule.sourceZone,
+                destZone    = rule.destZone,
+                action      = rule.action,
+                sourceVlan  = rule.sourceVlan,
+                destVlan    = rule.destVlan,
+                protocol    = rule.protocol,
+                sourcePort  = rule.sourcePort,
+                destPort    = rule.destPort,
+                priority    = rule.priority,
+                modelState  = rule.modelState.value,
+                createdAt   = rule.createdAt,
+                description = rule.description,
+            )
+            record = result.single()
+            return dict(record["r"]) if record else {}
 
     # ------------------------------------------------------------------
     # L5 — Configuration
