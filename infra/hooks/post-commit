@@ -56,6 +56,15 @@ if [ -z "$PYTHON" ]; then
   exit 0
 fi
 
+# Source .env so the pipeline picks up Neo4j / Live-Memory / Graph-Memory
+# credentials. The .env file is gitignored, so this is safe.
+if [ -f "$REPO_ROOT/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$REPO_ROOT/.env"
+  set +a
+fi
+
 # Print a one-line operator notification BEFORE backgrounding so they
 # see something happen immediately after `git commit` returns.
 echo "[ibn-hook] HLD changed in $COMMIT_SHA — closed-loop pipeline running in background"
