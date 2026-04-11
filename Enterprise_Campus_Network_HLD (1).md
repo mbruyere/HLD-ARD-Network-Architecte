@@ -3192,6 +3192,18 @@ graph LR
 | Firewall OOB | 260 | Firewall management | Admin only | All firewalls + jump hosts |
 | Publishing | 270 | Public services | Internet | 4-20 (large sites only) |
 
+### Device Inventory Table
+
+This table is the source-of-truth for the closed-loop's device list.
+Editing it triggers the IBN provisioning agent: adding a row spins up
+a new containerlab node, removing a row tears one down. The
+``Container`` column is the literal containerlab container name the
+agent will create.
+
+| Device ID | Vendor | Platform | Role | Site | Container | Mgmt IP |
+|-----------|--------|----------|------|------|-----------|---------|
+| acc-sw-01 | Nokia | srlinux | ACCESS_SWITCH | HQ | clab-ibnlab-switches-acc-sw-01 | 192.168.100.121 |
+
 ### Site Comparison Table
 
 | Feature | Large Site | Small Site |

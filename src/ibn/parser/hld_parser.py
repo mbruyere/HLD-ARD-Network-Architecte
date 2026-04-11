@@ -25,6 +25,7 @@ from typing import Optional
 
 POPULATION_TABLE_HEADER = "### Population Summary Table"
 DMZ_TABLE_HEADER = "### DMZ Summary Table"
+DEVICE_INVENTORY_TABLE_HEADER = "### Device Inventory Table"
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,25 @@ class DmzEntry:
 
 
 @dataclass
+class DeviceEntry:
+    """One row of the HLD Device Inventory Table (Slice 3).
+
+    Editing this table is the operator-facing primitive for adding
+    or removing devices from the network. The closed loop's
+    provisioner reconciles these entries against the live
+    containerlab topology and Neo4j SSoT.
+    """
+    device_id:      str        # "acc-sw-02"
+    vendor:         str        # "Nokia"
+    platform:       str        # "srlinux"
+    role:           str        # "ACCESS_SWITCH" | "AGGREGATION_SWITCH" | "FIREWALL" | ...
+    site:           str        # "HQ" | "BR-A" | "BR-B"
+    clab_container: str        # "clab-ibnlab-switches-acc-sw-02"
+    mgmt_ipv4:      str        # "192.168.100.122"
+    line_number:    int = 0
+
+
+@dataclass
 class HldSnapshot:
     """Structured snapshot of the parsed HLD sections.
 
@@ -64,6 +84,7 @@ class HldSnapshot:
     """
     populations: list[PopulationEntry] = field(default_factory=list)
     dmz:         list[DmzEntry]        = field(default_factory=list)
+    devices:     list[DeviceEntry]     = field(default_factory=list)
     source_path: str = ""
 
     def population_by_vlan(self, vlan: int) -> Optional[PopulationEntry]:
@@ -75,6 +96,12 @@ class HldSnapshot:
     def dmz_by_vlan(self, vlan: int) -> Optional[DmzEntry]:
         for d in self.dmz:
             if d.vlan == vlan:
+                return d
+        return None
+
+    def device_by_id(self, device_id: str) -> Optional[DeviceEntry]:
+        for d in self.devices:
+            if d.device_id == device_id:
                 return d
         return None
 
@@ -92,12 +119,16 @@ class ChangeSet:
     dmz_added:            list[DmzEntry]        = field(default_factory=list)
     dmz_modified:         list[DmzEntry]        = field(default_factory=list)
     dmz_removed:          list[DmzEntry]        = field(default_factory=list)
+    devices_added:        list[DeviceEntry]     = field(default_factory=list)
+    devices_modified:     list[DeviceEntry]     = field(default_factory=list)
+    devices_removed:      list[DeviceEntry]     = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
         return not any([
             self.populations_added, self.populations_modified, self.populations_removed,
             self.dmz_added, self.dmz_modified, self.dmz_removed,
+            self.devices_added, self.devices_modified, self.devices_removed,
         ])
 
     def summary(self) -> str:
@@ -114,6 +145,12 @@ class ChangeSet:
             parts.append(f"~{len(self.dmz_modified)} dmz")
         if self.dmz_removed:
             parts.append(f"-{len(self.dmz_removed)} dmz")
+        if self.devices_added:
+            parts.append(f"+{len(self.devices_added)} devices")
+        if self.devices_modified:
+            parts.append(f"~{len(self.devices_modified)} devices")
+        if self.devices_removed:
+            parts.append(f"-{len(self.devices_removed)} devices")
         return ", ".join(parts) if parts else "no changes"
 
 
@@ -268,14 +305,49 @@ def parse_dmz_table(markdown_text: str) -> list[DmzEntry]:
 
 
 # ---------------------------------------------------------------------------
+# Device inventory table → DeviceEntry
+# ---------------------------------------------------------------------------
+
+def parse_device_inventory(markdown_text: str) -> list[DeviceEntry]:
+    """Parse the HLD Device Inventory Table into DeviceEntry records.
+
+    Returns an empty list if the table is missing. Skips rows that
+    don't have all 7 expected columns (defensive against partial edits).
+    """
+    lines = markdown_text.splitlines()
+    rows = _table_with_lines(lines, DEVICE_INVENTORY_TABLE_HEADER)
+    out: list[DeviceEntry] = []
+    for cells, lineno in rows:
+        if len(cells) < 7:
+            continue
+        device_id = cells[0]
+        if not device_id:
+            continue
+        out.append(DeviceEntry(
+            device_id      = device_id,
+            vendor         = cells[1],
+            platform       = cells[2],
+            role           = cells[3],
+            site           = cells[4],
+            clab_container = cells[5],
+            mgmt_ipv4      = cells[6],
+            line_number    = lineno,
+        ))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Snapshot + diff
 # ---------------------------------------------------------------------------
 
 def parse_hld(markdown_text: str, source_path: str = "") -> HldSnapshot:
-    """Parse a full HLD document into the Slice 1 subset of structured data."""
+    """Parse a full HLD document into the structured subset the loop
+    currently understands (population/DMZ tables — Slice 1; device
+    inventory — Slice 3)."""
     return HldSnapshot(
         populations=parse_population_table(markdown_text),
         dmz=parse_dmz_table(markdown_text),
+        devices=parse_device_inventory(markdown_text),
         source_path=source_path,
     )
 
@@ -319,6 +391,18 @@ def diff_snapshots(old: HldSnapshot, new: HldSnapshot) -> ChangeSet:
         if vlan not in new_dmz:
             cs.dmz_removed.append(entry)
 
+    # Devices (Slice 3)
+    old_dev = {d.device_id: d for d in old.devices}
+    new_dev = {d.device_id: d for d in new.devices}
+    for did, entry in new_dev.items():
+        if did not in old_dev:
+            cs.devices_added.append(entry)
+        elif _device_changed(old_dev[did], entry):
+            cs.devices_modified.append(entry)
+    for did, entry in old_dev.items():
+        if did not in new_dev:
+            cs.devices_removed.append(entry)
+
     return cs
 
 
@@ -339,4 +423,15 @@ def _dmz_changed(a: DmzEntry, b: DmzEntry) -> bool:
         or a.purpose != b.purpose
         or a.access_from != b.access_from
         or a.device_count != b.device_count
+    )
+
+
+def _device_changed(a: DeviceEntry, b: DeviceEntry) -> bool:
+    return (
+        a.vendor != b.vendor
+        or a.platform != b.platform
+        or a.role != b.role
+        or a.site != b.site
+        or a.clab_container != b.clab_container
+        or a.mgmt_ipv4 != b.mgmt_ipv4
     )

@@ -27,6 +27,7 @@ from neo4j import GraphDatabase, Driver, Session
 from ibn.core.models import (
     Intent, Configuration, DeploymentEvent,
     Telemetry, OperationalState, Alert, AgentExecution,
+    Device, LifecycleEvent, DeviceLifecycleState,
 )
 
 
@@ -270,6 +271,126 @@ class Neo4jClient:
                     vlanId=vlan_id, intentId=intent_id,
                 )
             return vlan
+
+    # ------------------------------------------------------------------
+    # L1 — Device  (output of A1's HLD device-ingest path, Slice 3)
+    # ------------------------------------------------------------------
+
+    def create_device(self, device: Device) -> dict:
+        """Create or update a Device node in L1 (idempotent on deviceId).
+
+        The Device gets a LOCATED_AT relationship to its Site (which is
+        MERGED on the fly so re-runs don't fail when the Site doesn't
+        exist yet — useful for HLD-driven flows that may declare devices
+        before the operator has explicitly seeded sites).
+        """
+        with self._session() as s:
+            result = s.run(
+                """
+                MERGE (d:Device {deviceId: $deviceId})
+                SET d.hostname        = $hostname,
+                    d.vendor          = $vendor,
+                    d.platform        = $platform,
+                    d.deviceRole      = $deviceRole,
+                    d.siteId          = $siteId,
+                    d.clabContainer   = $clabContainer,
+                    d.mgmtIpv4        = $mgmtIpv4,
+                    d.lifecycleState  = $lifecycleState,
+                    d.modelState      = $modelState,
+                    d.origin          = $origin,
+                    d.createdAt       = coalesce(d.createdAt, $createdAt)
+                WITH d
+                MERGE (s:Site {siteId: $siteId})
+                MERGE (d)-[:LOCATED_AT]->(s)
+                RETURN d
+                """,
+                deviceId       = device.deviceId,
+                hostname       = device.hostname,
+                vendor         = device.vendor,
+                platform       = device.platform,
+                deviceRole     = device.deviceRole,
+                siteId         = device.siteId,
+                clabContainer  = device.clabContainer,
+                mgmtIpv4       = device.mgmtIpv4,
+                lifecycleState = device.lifecycleState.value,
+                modelState     = device.modelState.value,
+                origin         = device.origin,
+                createdAt      = device.createdAt,
+            )
+            record = result.single()
+            return dict(record["d"]) if record else {}
+
+    def update_device_lifecycle(self, device_id: str, new_state: str) -> None:
+        """Move a Device through its lifecycle state machine.
+
+        Doesn't validate the transition — the provisioner is responsible
+        for honoring the PLANNED → PROVISIONED → ACTIVE → RETIRED order.
+        """
+        with self._session() as s:
+            s.run(
+                "MATCH (d:Device {deviceId: $id}) SET d.lifecycleState = $state",
+                id=device_id, state=new_state,
+            )
+
+    def get_device(self, device_id: str) -> Optional[dict]:
+        """Look up a Device by its deviceId."""
+        with self._session() as s:
+            result = s.run(
+                "MATCH (d:Device {deviceId: $id}) RETURN d",
+                id=device_id,
+            )
+            record = result.single()
+            return dict(record["d"]) if record else None
+
+    def get_device_by_clab_container(self, container: str) -> Optional[dict]:
+        """Look up a Device by its clabContainer property.
+
+        Used by the provisioner to detect orphan containers (clab nodes
+        that aren't reflected in Neo4j) and reconcile them.
+        """
+        with self._session() as s:
+            result = s.run(
+                "MATCH (d:Device {clabContainer: $c}) RETURN d LIMIT 1",
+                c=container,
+            )
+            record = result.single()
+            return dict(record["d"]) if record else None
+
+    # ------------------------------------------------------------------
+    # L8 — LifecycleEvent  (Slice 3)
+    # ------------------------------------------------------------------
+
+    def create_lifecycle_event(self, event: LifecycleEvent) -> dict:
+        """Append a LifecycleEvent (L8) for a Device transition."""
+        with self._session() as s:
+            result = s.run(
+                """
+                CREATE (e:LifecycleEvent {
+                    eventId:      $eventId,
+                    deviceId:     $deviceId,
+                    eventType:    $eventType,
+                    fromState:    $fromState,
+                    toState:      $toState,
+                    timestamp:    $timestamp,
+                    payload:      $payload,
+                    errorMessage: $errorMessage
+                })
+                WITH e
+                MATCH (d:Device {deviceId: $deviceId})
+                MERGE (e)-[:RECORDS]->(d)
+                RETURN e
+                """,
+                eventId      = event.eventId,
+                deviceId     = event.deviceId,
+                eventType    = event.eventType,
+                fromState    = event.fromState,
+                toState      = event.toState,
+                timestamp    = event.timestamp,
+                payload      = event.payload,
+                errorMessage = event.errorMessage,
+            )
+            record = result.single()
+            return dict(record["e"]) if record else {}
 
     # ------------------------------------------------------------------
     # L5 — Configuration

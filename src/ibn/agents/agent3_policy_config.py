@@ -129,18 +129,26 @@ _QUERIES = {
     # rather than to a FirewallPair. The vendor field is what drives template
     # dispatch in _render_device(). Returns the same column shape as the
     # firewalls query so the renderer can treat both lists uniformly.
+    # Slice 3: also returns clabContainer (the literal container name) so
+    # A5 can dispatch via docker exec without deriving the name.
+    # Filters out devices in lifecycleState=RETIRED so HLD-removed devices
+    # don't get re-rendered after retirement.
     "switches": """
         MATCH (d:Device)
         WHERE d.deviceRole IN ['ACCESS_SWITCH','AGGREGATION_SWITCH','EDGE_ROUTER']
-          AND d.modelState IN ['POR','DEPLOYED']
+          AND d.modelState IN ['POR','DEPLOYED','CANDIDATE']
+          AND coalesce(d.lifecycleState, 'PLANNED') <> 'RETIRED'
         OPTIONAL MATCH (d)-[:LOCATED_AT]->(s:Site)
-        RETURN d.deviceId   AS device_id,
-               d.hostname   AS hostname,
-               d.vendor     AS vendor,
-               d.platform   AS platform,
-               d.deviceRole AS device_role,
-               s.siteId     AS site_id,
-               s.name       AS site_name
+        RETURN d.deviceId      AS device_id,
+               d.hostname      AS hostname,
+               d.vendor        AS vendor,
+               d.platform      AS platform,
+               d.deviceRole    AS device_role,
+               d.clabContainer AS clab_container,
+               d.mgmtIpv4      AS mgmt_ipv4,
+               d.lifecycleState AS lifecycle_state,
+               s.siteId        AS site_id,
+               s.name          AS site_name
         ORDER BY d.deviceRole, d.hostname
     """,
     # Slice 2: all current VLAN nodes (CANDIDATE/POR/DEPLOYED). Switch
@@ -257,8 +265,9 @@ class Agent3PolicyConfig(BaseAgent):
                 results.append({
                     "deviceId": device["device_id"],
                     "hostname": device["hostname"],
-                    "platform": device.get("platform"),  # Slice 2: vendor dispatch hint
+                    "platform": device.get("platform"),       # Slice 2: vendor dispatch hint
                     "vendor":   device.get("vendor"),
+                    "clabContainer": device.get("clab_container"),  # Slice 3: A5 docker target
                     "configId": config_id,
                     "content": content,
                     "diffLines": diff_lines,

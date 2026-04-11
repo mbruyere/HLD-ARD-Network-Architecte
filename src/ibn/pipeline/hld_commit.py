@@ -197,7 +197,7 @@ class HldCommitPipeline:
             )
             return self._final_result(stages, cycle_complete=True)
 
-        # Stage 1 — A1 ingest + dialogue
+        # Stage 1 — A1 ingest + dialogue (population path)
         from ibn.agents.agent1_ingestion import Agent1Ingestion
         a1 = Agent1Ingestion(self._neo4j, self._lm)
         a1_result = a1.ingest_hld_changeset(
@@ -216,13 +216,65 @@ class HldCommitPipeline:
             payload=a1_result,
         ))
 
-        intent_ids = a1_result["intents_created"]  # only newly-created intents flow downstream
-        if not intent_ids:
+        # Stage 1b — A1 device ingest (Slice 3)
+        # Reconciles the HLD Device Inventory Table → Neo4j Device nodes.
+        # Runs unconditionally so devices_modified rows are picked up too.
+        a1_device_result = a1.ingest_hld_devices(
+            changeset       = changeset,
+            source_path     = hld_path,
+            candidate_space = CANDIDATE_SPACE,
+        )
+        stages.append(StageResult(
+            name="A1 device ingest",
+            status="ok",
+            summary=(
+                f"created={len(a1_device_result['devices_created'])} "
+                f"updated={len(a1_device_result['devices_updated'])} "
+                f"to_retire={len(a1_device_result['devices_to_retire'])}"
+            ),
+            payload=a1_device_result,
+        ))
+
+        # Stage 1c — Provisioning (Slice 3)
+        # Spin up containers for new devices, tear down retired ones.
+        provisioning_result = self._run_provisioning_stage(
+            new_device_entries  = changeset.devices_added,
+            retired_device_ids  = a1_device_result["devices_to_retire"],
+        )
+        prov_failed = any(not r.success for r in provisioning_result["provisioned"])
+        stages.append(StageResult(
+            name="Provisioning",
+            status="error" if prov_failed else "ok",
+            summary=(
+                f"provisioned={len([r for r in provisioning_result['provisioned'] if r.success])} "
+                f"retired={len([r for r in provisioning_result['retired'] if r.success])}"
+                + (" (errors above)" if prov_failed else "")
+            ),
+            payload=provisioning_result,
+        ))
+        if prov_failed:
             self._note(
-                f"HLD commit {commit}: all changed populations already had Intents — "
-                f"no downstream work needed"
+                f"HLD commit {commit}: provisioning had failures — pipeline aborted"
+            )
+            return self._final_result(stages, cycle_complete=False)
+
+        intent_ids = a1_result["intents_created"]  # only newly-created intents flow downstream
+
+        # If only devices changed (no new intents), the population pipeline
+        # downstream of A2 has nothing to do, but we still need A3 to render
+        # initial config for the new device(s) and A5 to push it.
+        if not intent_ids and not changeset.devices_added:
+            self._note(
+                f"HLD commit {commit}: nothing for downstream agents to do "
+                f"(no new intents, no new devices)"
             )
             return self._final_result(stages, cycle_complete=True)
+
+        # If we ARE here purely for new devices, set intent_ids to a sentinel
+        # so the A3 path runs once (with no specific intent_id) and renders
+        # against the current Neo4j state.
+        if not intent_ids and changeset.devices_added:
+            intent_ids = [f"INT-DEVICE-PROVISION-{commit[:8]}"]
 
         # Stage 2 — A2 translate
         from ibn.agents.agent2_intent_policy import Agent2IntentPolicy
@@ -282,6 +334,9 @@ class HldCommitPipeline:
                     # Slice 2: pass platform through so A5 can dispatch
                     # to the right vendor executor (vyos / srlinux / …).
                     "platform": d.get("platform"),
+                    # Slice 3: pass clabContainer so A5 can use it as the
+                    # docker exec target instead of deriving from deviceId.
+                    "clabContainer": d.get("clabContainer"),
                 }
                 for d in r.get("devices", [])
                 if "configId" in d
@@ -345,6 +400,45 @@ class HldCommitPipeline:
     # ------------------------------------------------------------------
     # Stage helpers
     # ------------------------------------------------------------------
+
+    def _run_provisioning_stage(
+        self,
+        new_device_entries: list,
+        retired_device_ids: list[str],
+    ) -> dict:
+        """Slice 3 provisioning stage.
+
+        For each newly-added DeviceEntry, spin up the container.
+        For each retired device id, tear down the container.
+        Returns lists of ProvisionResult / RetireResult objects.
+        """
+        results = {"provisioned": [], "retired": []}
+        if not new_device_entries and not retired_device_ids:
+            return results
+
+        from ibn.agents.provisioner import Provisioner
+        prov = Provisioner(self._neo4j, self._lm)
+
+        for entry in new_device_entries:
+            self._note(
+                f"Provisioning new device {entry.device_id} "
+                f"({entry.vendor}/{entry.platform}) → {entry.clab_container}"
+            )
+            r = prov.provision(entry)
+            results["provisioned"].append(r)
+            if not r.success:
+                self._note(
+                    f"PROVISION FAILED for {entry.device_id}: {r.error}"
+                )
+
+        for did in retired_device_ids:
+            self._note(f"Retiring device {did}")
+            r = prov.retire(did)
+            results["retired"].append(r)
+            if not r.success:
+                self._note(f"RETIRE FAILED for {did}: {r.error}")
+
+        return results
 
     def _a4_stub(self, intent_ids: list[str]) -> str:
         """Slice 1 stub for Agent 4 planning.

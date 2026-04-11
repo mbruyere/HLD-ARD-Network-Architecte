@@ -270,6 +270,7 @@ class Agent5Orchestration(BaseAgent):
             config_id = step.get("configId", f"CFG-{uuid.uuid4().hex[:8].upper()}")
             content   = step.get("content", "")
             platform  = step.get("platform")  # Slice 2: vendor dispatch hint
+            clab_container = step.get("clabContainer")  # Slice 3: docker target
 
             # Slice 2: skip devices whose rendered config is empty (the
             # template chain produced nothing for them). These are usually
@@ -285,6 +286,11 @@ class Agent5Orchestration(BaseAgent):
                 )
                 continue
 
+            # Slice 3: if the device has a clabContainer, use that as the
+            # push target (the deviceId is just an SSoT key). The SR Linux
+            # executor accepts container names directly.
+            push_target = clab_container or device_id
+
             # Slice 2: per-platform executor selection. If the constructor
             # was given an explicit ssh_executor (test injection), use that
             # — otherwise dispatch on platform.
@@ -295,7 +301,7 @@ class Agent5Orchestration(BaseAgent):
 
             event_id = f"DEP-{uuid.uuid4().hex[:8].upper()}"
             try:
-                executor(device_id, content)
+                executor(push_target, content)
 
                 # Record success
                 self._neo4j.create_deployment_event(DeploymentEvent(

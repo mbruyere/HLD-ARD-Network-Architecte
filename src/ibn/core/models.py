@@ -26,6 +26,26 @@ class ModelState(str, Enum):
 
 
 # ---------------------------------------------------------------------------
+# Device lifecycle (Slice 3)
+# ---------------------------------------------------------------------------
+
+class DeviceLifecycleState(str, Enum):
+    """L8 lifecycle phase a Device walks through.
+
+    PLANNED      — Device row exists in the HLD but not yet provisioned.
+    PROVISIONED  — Container is up but not yet configured / verified.
+    ACTIVE       — Container is up, config pushed, A7 verified COMPLIANT.
+    DEGRADED     — Active but A7 currently reports drift.
+    RETIRED      — HLD row removed; container torn down; configs archived.
+    """
+    PLANNED      = "PLANNED"
+    PROVISIONED  = "PROVISIONED"
+    ACTIVE       = "ACTIVE"
+    DEGRADED     = "DEGRADED"
+    RETIRED      = "RETIRED"
+
+
+# ---------------------------------------------------------------------------
 # Severity
 # ---------------------------------------------------------------------------
 
@@ -109,6 +129,58 @@ class FirewallRule:
 
 
 VALID_FIREWALL_RULE_ACTIONS = {"permit", "deny"}
+
+
+# ---------------------------------------------------------------------------
+# L1 — Device  (Slice 3)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Device:
+    """L1 Device node — output of Agent 1 device-ingest path (Slice 3).
+
+    Devices live in L1 (Infrastructure). The HLD's Device Inventory
+    Table is the source-of-truth for which devices exist; A1 reconciles
+    Neo4j against that table on every HLD commit.
+
+    The ``clabContainer`` field is what A5's vendor dispatch uses as
+    the docker target. ``mgmtIpv4`` is allocated by the provisioner
+    and reflects the live management IP on the lab network.
+    """
+    deviceId:      str
+    hostname:      str
+    vendor:        str                       # "Nokia" | "Cisco" | "VyOS" | …
+    platform:      str                       # "srlinux" | "vyos" | "ios-xe" | …
+    deviceRole:    str                       # "ACCESS_SWITCH" | "FIREWALL" | …
+    siteId:        str                       # "SITE-HQ-01"
+    clabContainer: Optional[str] = None
+    mgmtIpv4:      Optional[str] = None
+    lifecycleState: DeviceLifecycleState = DeviceLifecycleState.PLANNED
+    modelState:    ModelState = ModelState.CANDIDATE
+    createdAt:     str        = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    origin:        Optional[str] = None      # "HLD:<file>:<line>"
+
+
+# ---------------------------------------------------------------------------
+# L8 — Lifecycle  (Slice 3)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LifecycleEvent:
+    """L8 LifecycleEvent node — written when a Device transitions states.
+
+    Each event records a state transition (PLANNED→PROVISIONED, etc.)
+    so the audit trail captures device birth and death, not just config
+    changes. Provisioning failures also write events with errorMessage.
+    """
+    eventId:      str
+    deviceId:     str
+    eventType:    str                        # "PROVISIONED" | "RETIRED" | "PROVISION_FAILED" | …
+    fromState:    Optional[str] = None
+    toState:      Optional[str] = None
+    timestamp:    str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    payload:      Optional[str] = None       # free-form JSON or text
+    errorMessage: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

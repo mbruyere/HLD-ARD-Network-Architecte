@@ -42,7 +42,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from ibn.core.base_agent import BaseAgent
-from ibn.core.models import Intent, ModelState, VALID_INTENT_ACTIONS
+from ibn.core.models import (
+    Intent, ModelState, VALID_INTENT_ACTIONS,
+    Device, DeviceLifecycleState,
+)
 
 
 class ConflictError(ValueError):
@@ -448,3 +451,134 @@ class Agent1Ingestion(BaseAgent):
             # Fall back to template (a) when no operator is attached
             self._log.warning("HLD dialogue had no input — defaulting to (a)")
             return "a"
+
+    # ------------------------------------------------------------------
+    # HLD device ingestion (Slice 3)
+    # ------------------------------------------------------------------
+
+    def ingest_hld_devices(
+        self,
+        changeset,
+        source_path: str,
+        candidate_space: str = "ibn-candidate-001",
+    ) -> dict:
+        """Reconcile Neo4j Device nodes against the HLD Device Inventory Table.
+
+        For each added/modified DeviceEntry, create or update a Device
+        node in L1. For each removed entry, return the device id so the
+        caller (orchestrator → Provisioner.retire) can tear it down.
+
+        This is intentionally separate from ``ingest_hld_changeset()`` —
+        the population path produces L4 Intents and L1 VLANs, the device
+        path produces L1 Devices. The orchestrator calls both.
+
+        Returns
+        -------
+        dict with keys:
+          - ``devices_created``: list of new Device IDs
+          - ``devices_updated``: list of modified Device IDs (already existed)
+          - ``devices_to_retire``: list of Device IDs the operator removed
+        """
+        created: list[str] = []
+        updated: list[str] = []
+        to_retire: list[str] = []
+
+        # Added devices
+        for entry in changeset.devices_added:
+            origin = f"HLD:{source_path}:{entry.line_number}"
+            existing = self._neo4j.get_device(entry.device_id)
+            device = Device(
+                deviceId       = entry.device_id,
+                hostname       = entry.device_id,  # use the HLD ID as hostname
+                vendor         = entry.vendor,
+                platform       = entry.platform.lower(),
+                deviceRole     = entry.role,
+                siteId         = f"SITE-{entry.site}-01" if not entry.site.startswith("SITE-") else entry.site,
+                clabContainer  = entry.clab_container,
+                mgmtIpv4       = entry.mgmt_ipv4,
+                lifecycleState = DeviceLifecycleState.PLANNED,
+                modelState     = ModelState.CANDIDATE,
+                origin         = origin,
+            )
+            self._neo4j.create_device(device)
+            if existing:
+                updated.append(entry.device_id)
+            else:
+                created.append(entry.device_id)
+
+            self._note(
+                candidate_space,
+                (
+                    f"HLD device {'created' if not existing else 'updated'}: "
+                    f"{entry.device_id} ({entry.vendor}/{entry.platform}, "
+                    f"{entry.role}) at {entry.site} → "
+                    f"container {entry.clab_container}"
+                ),
+                category="hld-device-ingestion",
+            )
+            self._publish("device.added" if not existing else "device.modified", {
+                "deviceId":      entry.device_id,
+                "vendor":        entry.vendor,
+                "platform":      entry.platform.lower(),
+                "clabContainer": entry.clab_container,
+                "origin":        origin,
+            })
+
+        # Modified devices (separate loop because they go to a different
+        # event type but reuse the same upsert logic above)
+        for entry in changeset.devices_modified:
+            if entry.device_id in created or entry.device_id in updated:
+                continue  # already handled in devices_added pass
+            origin = f"HLD:{source_path}:{entry.line_number}"
+            device = Device(
+                deviceId       = entry.device_id,
+                hostname       = entry.device_id,
+                vendor         = entry.vendor,
+                platform       = entry.platform.lower(),
+                deviceRole     = entry.role,
+                siteId         = f"SITE-{entry.site}-01" if not entry.site.startswith("SITE-") else entry.site,
+                clabContainer  = entry.clab_container,
+                mgmtIpv4       = entry.mgmt_ipv4,
+                # Don't reset lifecycleState on a property update — it's the
+                # provisioner's job to drive the state machine. create_device
+                # MERGEs and overwrites everything except createdAt; for
+                # modified devices we want lifecycleState preserved, so we
+                # read it back first and pass it through.
+                lifecycleState = self._read_lifecycle(entry.device_id),
+                modelState     = ModelState.CANDIDATE,
+                origin         = origin,
+            )
+            self._neo4j.create_device(device)
+            updated.append(entry.device_id)
+            self._note(
+                candidate_space,
+                f"HLD device updated: {entry.device_id} (property change)",
+                category="hld-device-ingestion",
+            )
+            self._publish("device.modified", {"deviceId": entry.device_id})
+
+        # Removed devices — caller will retire them
+        for entry in changeset.devices_removed:
+            to_retire.append(entry.device_id)
+            self._note(
+                candidate_space,
+                f"HLD device REMOVED: {entry.device_id} — queued for retirement",
+                category="hld-device-ingestion",
+            )
+            self._publish("device.removed", {"deviceId": entry.device_id})
+
+        return {
+            "devices_created":   created,
+            "devices_updated":   updated,
+            "devices_to_retire": to_retire,
+        }
+
+    def _read_lifecycle(self, device_id: str) -> DeviceLifecycleState:
+        """Look up a Device's current lifecycleState; default to PLANNED."""
+        rec = self._neo4j.get_device(device_id)
+        if not rec:
+            return DeviceLifecycleState.PLANNED
+        try:
+            return DeviceLifecycleState(rec.get("lifecycleState", "PLANNED"))
+        except ValueError:
+            return DeviceLifecycleState.PLANNED
