@@ -241,6 +241,63 @@ def _frr_executor(device_id: str, config: str) -> dict:
     return {"status": "ok", "device": device_id, "container": container}
 
 
+# ---------------------------------------------------------------------------
+# Slice 7a: SR Linux gNMI executor (pygnmi over TLS:57400)
+# ---------------------------------------------------------------------------
+# Gated by IBN_SRLINUX_TRANSPORT=gnmi. When unset or "cli" (default) the
+# existing `_srlinux_ssh_executor` path runs — identical to Slice 5
+# behaviour so CI, tests and production default stay on the proven path.
+#
+# The translator in `_srlinux_yang.py` converts the A3-rendered
+# `set /` CLI blob into gNMI (path, value) updates. SR Linux does the
+# commit atomically as part of the gNMI SetRequest; no `commit now`
+# wrapper needed. Credentials + TLS follow the stock container defaults
+# (`admin/NokiaSrl1!`, self-signed cert) — pinning the clab CA is a 7b
+# followup.
+
+
+def _srlinux_mgmt_ip(container: str) -> str:
+    proc = subprocess.run(
+        ["docker", "inspect", "-f",
+         '{{(index .NetworkSettings.Networks "netlab_mgmt").IPAddress}}',
+         container],
+        capture_output=True, timeout=10,
+    )
+    ip = proc.stdout.decode().strip()
+    if not ip:
+        raise RuntimeError(f"could not resolve mgmt IP for {container}")
+    return ip
+
+
+def _srlinux_gnmi_executor(device_id: str, config: str) -> dict:
+    from pygnmi.client import gNMIclient  # lazy: only when gnmi transport selected
+    from ._srlinux_yang import cli_to_gnmi_updates
+
+    container = _srlinux_container_for(device_id)
+    updates = cli_to_gnmi_updates(config)
+    if not updates:
+        return {"status": "skipped", "device": device_id, "reason": "empty"}
+
+    host = (_srlinux_mgmt_ip(container), 57400)
+    user = os.environ.get("IBN_SRLINUX_USER", "admin")
+    pw   = os.environ.get("IBN_SRLINUX_PASS", "NokiaSrl1!")
+    with gNMIclient(target=host, username=user, password=pw,
+                    skip_verify=True, insecure=False) as gc:
+        resp = gc.set(update=updates)
+    ops = [r.get("op") for r in resp.get("response", [])]
+    return {
+        "status": "ok", "device": device_id, "container": container,
+        "transport": "gnmi", "updates": len(updates), "ops": ops,
+    }
+
+
+def _srlinux_gnmi_verifier(device_id: str, expected_snippets: list[str]) -> dict:
+    # Verification path stays on sr_cli: it's already proven, reads `info
+    # from running`, and can match free-form snippets. A later slice will
+    # do schema-aware gNMI Get diffs.
+    return _srlinux_ssh_verifier(device_id, expected_snippets)
+
+
 def _frr_verifier(device_id: str, expected_snippets: list[str]) -> dict:
     """Verify FRR config via ``docker exec ... vtysh -c 'show running-config'``."""
     container = _srlinux_container_for(device_id)
@@ -280,13 +337,19 @@ _VENDOR_VERIFIERS: dict[str, Callable] = {
 def _resolve_executor(platform: Optional[str]) -> Callable:
     if not platform:
         return _default_ssh_executor
-    return _VENDOR_EXECUTORS.get(platform.lower(), _default_ssh_executor)
+    p = platform.lower()
+    if p == "srlinux" and os.environ.get("IBN_SRLINUX_TRANSPORT", "cli").lower() == "gnmi":
+        return _srlinux_gnmi_executor
+    return _VENDOR_EXECUTORS.get(p, _default_ssh_executor)
 
 
 def _resolve_verifier(platform: Optional[str]) -> Callable:
     if not platform:
         return _default_ssh_verifier
-    return _VENDOR_VERIFIERS.get(platform.lower(), _default_ssh_verifier)
+    p = platform.lower()
+    if p == "srlinux" and os.environ.get("IBN_SRLINUX_TRANSPORT", "cli").lower() == "gnmi":
+        return _srlinux_gnmi_verifier
+    return _VENDOR_VERIFIERS.get(p, _default_ssh_verifier)
 
 
 class Agent5Orchestration(BaseAgent):
