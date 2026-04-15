@@ -261,40 +261,49 @@ class HldCommitPipeline:
             )
             return self._final_result(stages, cycle_complete=False)
 
-        intent_ids = a1_result["intents_created"]  # only newly-created intents flow downstream
+        # Split "real intents" (from A1 ingestion — A2 needs to run against
+        # these) from "render-only intents" (device-only commits — A3/A5/A7
+        # still need to render against existing Neo4j state but A2 has
+        # nothing to decompose).
+        real_intent_ids = a1_result["intents_created"]
+        render_intent_ids = list(real_intent_ids)
+        if not real_intent_ids and changeset.devices_added:
+            render_intent_ids = [f"INT-DEVICE-PROVISION-{commit[:8]}"]
 
-        # If only devices changed (no new intents), the population pipeline
-        # downstream of A2 has nothing to do, but we still need A3 to render
-        # initial config for the new device(s) and A5 to push it.
-        if not intent_ids and not changeset.devices_added:
+        if not render_intent_ids:
             self._note(
                 f"HLD commit {commit}: nothing for downstream agents to do "
                 f"(no new intents, no new devices)"
             )
             return self._final_result(stages, cycle_complete=True)
 
-        # If we ARE here purely for new devices, set intent_ids to a sentinel
-        # so the A3 path runs once (with no specific intent_id) and renders
-        # against the current Neo4j state.
-        if not intent_ids and changeset.devices_added:
-            intent_ids = [f"INT-DEVICE-PROVISION-{commit[:8]}"]
+        # Stage 2 — A2 translate (only for real Intent nodes)
+        if real_intent_ids:
+            from ibn.agents.agent2_intent_policy import Agent2IntentPolicy
+            a2 = Agent2IntentPolicy(self._neo4j, self._lm)
+            a2_results = []
+            for iid in real_intent_ids:
+                r = a2.run(intent_id=iid)
+                a2_results.append(r)
+            stages.append(StageResult(
+                name="A2 translation",
+                status="ok",
+                summary=(
+                    f"{len(a2_results)} policies, "
+                    f"{sum(r['ruleCount'] for r in a2_results)} firewall rules"
+                ),
+                payload={"policies": a2_results},
+            ))
+        else:
+            stages.append(StageResult(
+                name="A2 translation",
+                status="skipped",
+                summary="device-only commit — no intents to decompose",
+                payload={},
+            ))
 
-        # Stage 2 — A2 translate
-        from ibn.agents.agent2_intent_policy import Agent2IntentPolicy
-        a2 = Agent2IntentPolicy(self._neo4j, self._lm)
-        a2_results = []
-        for iid in intent_ids:
-            r = a2.run(intent_id=iid)
-            a2_results.append(r)
-        stages.append(StageResult(
-            name="A2 translation",
-            status="ok",
-            summary=(
-                f"{len(a2_results)} policies, "
-                f"{sum(r['ruleCount'] for r in a2_results)} firewall rules"
-            ),
-            payload={"policies": a2_results},
-        ))
+        # Keep ``intent_ids`` for downstream stages (A4, A3, A5, A7).
+        intent_ids = render_intent_ids
 
         # Stage 3 — A4 planning (Slice 4 real implementation)
         from ibn.agents.agent4_planning import Agent4Planning

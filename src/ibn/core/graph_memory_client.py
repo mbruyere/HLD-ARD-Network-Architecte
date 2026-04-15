@@ -59,17 +59,66 @@ DEFAULT_ONTOLOGY = "general"
 # Async MCP transport helpers  (copied pattern from live_memory_client)
 # ---------------------------------------------------------------------------
 
-def _run(coro):
-    """Run a coroutine synchronously, reusing a running loop when available."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+import atexit as _atexit
+import threading as _threading
+
+_loop: Optional[asyncio.AbstractEventLoop] = None
+_loop_thread: Optional[_threading.Thread] = None
+_loop_lock = _threading.Lock()
+
+
+def _shutdown_background_loop() -> None:
+    global _loop, _loop_thread
+    loop = _loop
+    thread = _loop_thread
+    if loop is not None and not loop.is_closed() and loop.is_running():
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2.0)
+    if loop is not None and not loop.is_closed():
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
+def _get_background_loop() -> asyncio.AbstractEventLoop:
+    """Persistent daemon-thread event loop — see ``live_memory_client``
+    for the Python 3.14 + anyio TaskGroup / asyncio.run teardown bug
+    this works around."""
+    global _loop, _loop_thread
+    with _loop_lock:
+        if _loop is not None and not _loop.is_closed():
+            return _loop
+        _loop = asyncio.new_event_loop()
+
+        def _runner(loop: asyncio.AbstractEventLoop) -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        _loop_thread = _threading.Thread(
+            target=_runner, args=(_loop,), daemon=True, name="ibn-gm-loop",
+        )
+        _loop_thread.start()
+        _atexit.register(_shutdown_background_loop)
+        return _loop
+
+
+def _run(coro_factory, *args, **kwargs):
+    """Submit an async function to the persistent background loop."""
+    loop = _get_background_loop()
+
+    async def _wrapper():
+        if asyncio.iscoroutine(coro_factory):
+            return await coro_factory
+        coro = coro_factory(*args, **kwargs)
+        return await coro
+
+    future = asyncio.run_coroutine_threadsafe(_wrapper(), loop)
+    return future.result(timeout=120)
 
 
 async def _call_mcp_tool(base_url: str, token: str, tool_name: str, arguments: dict) -> Any:
@@ -139,7 +188,8 @@ class GraphMemoryClient:
         )
 
     def _call(self, tool: str, args: dict) -> Any:
-        return _run(_call_mcp_tool(self._base, self._token, tool, args))
+        # Pass factory (not a pre-created coroutine) — see _run() docstring.
+        return _run(_call_mcp_tool, self._base, self._token, tool, args)
 
     # ------------------------------------------------------------------
     # Memory management

@@ -34,19 +34,97 @@ import httpx
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run(coro):
-    """Run an async coroutine synchronously, reusing a running loop if present."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Inside an already-running loop (e.g. Jupyter / async test) — use a thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+# ---------------------------------------------------------------------------
+# Persistent background event loop
+# ---------------------------------------------------------------------------
+# On Python 3.14.3 + mcp 1.27 + httpx 0.28 + anyio 4.13, calling
+# ``asyncio.run(coro)`` where ``coro`` uses ``streamablehttp_client`` hangs
+# in the teardown phase — the coroutine returns but the loop never closes.
+# Process exit short-circuits the hang, which is why one-shot scripts
+# work but library code embedded in longer-lived processes stalls.
+#
+# The fix: keep a single event loop alive in a daemon background thread
+# for the process lifetime. Submit each MCP coroutine to that loop via
+# ``asyncio.run_coroutine_threadsafe``. The loop never tears down, so the
+# asyncio.run teardown bug can't trigger. Each coroutine's own ``async
+# with streamablehttp_client`` cleans up inline via its TaskGroup before
+# the future resolves.
+# ---------------------------------------------------------------------------
+
+import atexit as _atexit
+import threading as _threading
+
+_loop: Optional[asyncio.AbstractEventLoop] = None
+_loop_thread: Optional[_threading.Thread] = None
+_loop_lock = _threading.Lock()
+
+
+def _shutdown_background_loop() -> None:
+    """Stop the background loop cleanly on interpreter exit.
+
+    Without this, Python 3.14 can segfault (cosmetic, after all work
+    is done) as it tears down the daemon thread while the loop is
+    still running. We stop the loop via call_soon_threadsafe, then
+    the runner returns and the thread exits naturally.
+    """
+    global _loop, _loop_thread
+    loop = _loop
+    thread = _loop_thread
+    if loop is not None and not loop.is_closed() and loop.is_running():
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2.0)
+    if loop is not None and not loop.is_closed():
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
+def _get_background_loop() -> asyncio.AbstractEventLoop:
+    """Lazily start a daemon thread running a persistent event loop."""
+    global _loop, _loop_thread
+    with _loop_lock:
+        if _loop is not None and not _loop.is_closed():
+            return _loop
+        _loop = asyncio.new_event_loop()
+
+        def _runner(loop: asyncio.AbstractEventLoop) -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_forever()
+
+        _loop_thread = _threading.Thread(
+            target=_runner, args=(_loop,), daemon=True, name="ibn-mcp-loop",
+        )
+        _loop_thread.start()
+        _atexit.register(_shutdown_background_loop)
+        return _loop
+
+
+def _run(coro_factory, *args, **kwargs):
+    """Run an async function synchronously via a persistent background loop.
+
+    ``coro_factory`` can be an async callable (preferred — coroutine is
+    created inside the background loop) or a pre-created coroutine
+    (accepted for backward-compat).
+
+    See the module-level comment above ``_get_background_loop`` for the
+    Python 3.14 anyio TaskGroup / asyncio.run teardown bug this works
+    around.
+    """
+    loop = _get_background_loop()
+
+    async def _wrapper():
+        if asyncio.iscoroutine(coro_factory):
+            return await coro_factory
+        coro = coro_factory(*args, **kwargs)
+        return await coro
+
+    future = asyncio.run_coroutine_threadsafe(_wrapper(), loop)
+    return future.result(timeout=120)
 
 
 async def _call_mcp_tool(base_url: str, token: str, tool_name: str, arguments: dict) -> Any:
@@ -145,7 +223,8 @@ class LiveMemoryClient:
         )
 
     def _call(self, tool: str, args: dict) -> Any:
-        return _run(_call_mcp_tool(self._base, self._token, tool, args))
+        # Pass the factory, not a pre-created coroutine — see _run() docstring.
+        return _run(_call_mcp_tool, self._base, self._token, tool, args)
 
     # ------------------------------------------------------------------
     # Space management
