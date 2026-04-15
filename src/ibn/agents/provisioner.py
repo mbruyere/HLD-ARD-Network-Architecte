@@ -117,18 +117,55 @@ class Provisioner:
     # ------------------------------------------------------------------
 
     def provision(self, device_entry, deploy_space: str = "ibn-deploy-001") -> ProvisionResult:
-        """Spin up the container for a new HLD device entry.
+        """Spin up (or adopt) the container for an HLD device entry.
 
-        ``device_entry`` is a ``DeviceEntry`` from the HLD parser. The
-        Provisioner:
-          1. Adds the node to the topology YAML (idempotent)
-          2. Runs `clab deploy` from the work path
-          3. Polls `docker ps` for the container
-          4. Writes a LifecycleEvent + updates Device.lifecycleState
+        ``device_entry`` is a ``DeviceEntry`` from the HLD parser.
+
+        Slice 4.5 — **Adopt path**: if the target container is already
+        running (e.g. it was provisioned out-of-band by netlab for the
+        firewall lab), skip the clab deploy entirely, mark the Device
+        ACTIVE, and write an `ADOPTED` LifecycleEvent. This lets the
+        HLD Device Inventory Table reflect containers the loop didn't
+        spin up itself.
+
+        Otherwise the standard flow runs:
+          1. Add the node to the topology YAML (idempotent)
+          2. Run `clab deploy` from the work path
+          3. Poll `docker ps` for the container
+          4. Write a LifecycleEvent + update Device.lifecycleState
         """
         start = time.monotonic()
         container = device_entry.clab_container
         device_id = device_entry.device_id
+
+        # Slice 4.5 — adopt path: already running, no clab deploy needed.
+        if self._container_running(container):
+            self._log.info(
+                "Provisioner: container %s already running — adopting (no deploy)",
+                container,
+            )
+            self._safe_lifecycle_update(device_id, DeviceLifecycleState.ACTIVE.value)
+            event = LifecycleEvent(
+                eventId   = f"EVT-ADOPT-{uuid.uuid4().hex[:8].upper()}",
+                deviceId  = device_id,
+                eventType = "ADOPTED",
+                fromState = DeviceLifecycleState.PLANNED.value,
+                toState   = DeviceLifecycleState.ACTIVE.value,
+                payload   = f"container={container} (externally provisioned)",
+            )
+            self._safe_create_event(event)
+            self._note(
+                deploy_space,
+                f"Provisioner: adopted existing container {container} for {device_id}",
+                "adopt-result",
+            )
+            return ProvisionResult(
+                device_id   = device_id,
+                container   = container,
+                success     = True,
+                state       = DeviceLifecycleState.ACTIVE.value,
+                duration_ms = int((time.monotonic() - start) * 1000),
+            )
 
         # Step 1: ensure topology has this node
         try:

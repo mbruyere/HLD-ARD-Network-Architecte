@@ -3203,6 +3203,10 @@ agent will create.
 | Device ID | Vendor | Platform | Role | Site | Container | Mgmt IP |
 |-----------|--------|----------|------|------|-----------|---------|
 | acc-sw-01 | Nokia | srlinux | ACCESS_SWITCH | HQ | clab-ibnlab-switches-acc-sw-01 | 192.168.100.121 |
+| DEV-HQ-USF-01 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-usf1 | 192.168.100.101 |
+| DEV-HQ-USF-02 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-usf2 | 192.168.100.102 |
+| DEV-HQ-DMZFW-01 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-dmzfw1 | 192.168.100.103 |
+| DEV-HQ-DMZFW-02 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-dmzfw2 | 192.168.100.104 |
 
 ### Site Comparison Table
 
