@@ -3207,6 +3207,10 @@ agent will create.
 | DEV-HQ-USF-02 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-usf2 | 192.168.100.102 |
 | DEV-HQ-DMZFW-01 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-dmzfw1 | 192.168.100.103 |
 | DEV-HQ-DMZFW-02 | VyOS | vyos | FIREWALL | HQ | clab-ibnlab-dmzfw2 | 192.168.100.104 |
+| DEV-HQ-ACC-01 | Nokia | srlinux | ACCESS_SWITCH | HQ | clab-ibnlab-switches-acc-01 | 192.168.100.131 |
+| DEV-HQ-AGG-01 | Nokia | srlinux | AGGREGATION_SWITCH | HQ | clab-ibnlab-switches-agg-01 | 192.168.100.141 |
+| DEV-HQ-EDGE-01 | FRR | frr | EDGE_ROUTER | HQ | clab-ibnlab-switches-edge-01 | 192.168.100.151 |
+| DEV-HQ-EDGE-02 | FRR | frr | EDGE_ROUTER | HQ | clab-ibnlab-switches-edge-02 | 192.168.100.152 |
 
 ### Site Comparison Table
 

@@ -1,0 +1,17 @@
+{# FRR interface config — admin-state up on eth0 (management) +
+   a description per L1 VLAN (mirroring what srl_vlans.j2 does for SR Linux).
+   FRR doesn't manage VLAN subinterfaces directly (that's the kernel's job);
+   we just advertise a routed interface per VLAN for Slice 5. Slice 6+
+   may extend this when EVPN/L2 requirements appear. #}
+interface eth0
+ description Management interface (HLD-driven)
+ no shutdown
+exit
+{% for v in vlans -%}
+{%- if v.vlan_id %}
+interface eth0.{{ v.vlan_id }}
+ description "{{ v.vlan_name or "vlan-" ~ v.vlan_id }} (HLD-driven)"
+ no shutdown
+exit
+{% endif -%}
+{% endfor %}

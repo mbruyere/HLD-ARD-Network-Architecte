@@ -1,0 +1,22 @@
+{# FRR routing stub — BGP skeleton sized for an edge-router role.
+   Slice 5 ships a minimal identity + router-id; Slice 6+ will parse an
+   HLD routing section for AS numbers, neighbors, route-maps, etc. #}
+{# Prefer the device's management IP as router-id (stable + routable);
+   fall back to a deterministic 10.0.0.x derived from the device id. #}
+{% if device.mgmt_ipv4 %}
+{%- set router_id = device.mgmt_ipv4 %}
+{%- else %}
+{%- set fallback_octet = (device.device_id | length % 250) + 1 %}
+{%- set router_id = '10.0.0.' ~ fallback_octet %}
+{%- endif %}
+router bgp 65001
+ bgp router-id {{ router_id }}
+ no bgp default ipv4-unicast
+ bgp log-neighbor-changes
+exit
+!
+router ospf
+ ospf router-id {{ router_id }}
+ passive-interface default
+exit
+!

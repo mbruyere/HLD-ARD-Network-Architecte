@@ -185,6 +185,14 @@ _TEMPLATE_CHAINS: dict[str, list[str]] = {
         "srl_interfaces.j2",
         "srl_vlans.j2",
     ],
+    # Slice 5 — FRR edge-router chain. Uses vtysh-style commands
+    # rendered as plain CLI text; the Slice 5 A5 executor wraps them
+    # in `enable / configure terminal / ... / end / write memory`.
+    "frr": [
+        "frr_base.j2",
+        "frr_interfaces.j2",
+        "frr_routing.j2",
+    ],
     # Slice 6 will add: "ios-xe": [...], "eos": [...], etc.
 }
 

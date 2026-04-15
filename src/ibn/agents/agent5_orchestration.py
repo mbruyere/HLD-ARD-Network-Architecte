@@ -200,6 +200,66 @@ def _srlinux_ssh_verifier(device_id: str, expected_snippets: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Slice 5: FRR executor via `docker exec ... vtysh`
+# ---------------------------------------------------------------------------
+# FRR containerlab nodes run ``vtysh`` as the unified CLI wrapping all
+# daemons. We push config by piping an ``enable / configure terminal /
+# ... / end / write memory`` sequence via `docker exec -i ... vtysh`.
+# The container name derivation reuses the same helper as SR Linux.
+
+
+def _frr_executor(device_id: str, config: str) -> dict:
+    """Push FRR config via ``docker exec ... vtysh``.
+
+    The rendered template chain emits plain FRR CLI commands (the
+    ``frr_*.j2`` files). We wrap them in ``configure terminal`` /
+    ``end`` / ``write memory`` so the change is persisted to
+    ``/etc/frr/frr.conf`` and survives a container restart.
+    """
+    container = _srlinux_container_for(device_id)  # same naming convention
+
+    script_lines = ["enable", "configure terminal"]
+    for line in config.splitlines():
+        line = line.rstrip()
+        if line and not line.startswith("#"):
+            script_lines.append(line)
+    script_lines.append("end")
+    script_lines.append("write memory")
+    script = "\n".join(script_lines) + "\n"
+
+    proc = subprocess.run(
+        ["docker", "exec", "-i", container, "vtysh"],
+        input=script.encode("utf-8"),
+        capture_output=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"vtysh push to {container} failed (rc={proc.returncode}): "
+            f"{proc.stderr.decode(errors='replace')[:500]}"
+        )
+    return {"status": "ok", "device": device_id, "container": container}
+
+
+def _frr_verifier(device_id: str, expected_snippets: list[str]) -> dict:
+    """Verify FRR config via ``docker exec ... vtysh -c 'show running-config'``."""
+    container = _srlinux_container_for(device_id)
+    proc = subprocess.run(
+        ["docker", "exec", container, "vtysh", "-c", "show running-config"],
+        capture_output=True,
+        timeout=60,
+    )
+    running = proc.stdout.decode(errors="replace")
+    missing = [s for s in expected_snippets if s not in running]
+    if missing:
+        raise RuntimeError(
+            f"FRR verification failed on {container}: "
+            f"{len(missing)} expected snippet(s) not found: {missing[:3]}"
+        )
+    return {"verified": True, "device": device_id, "checked": len(expected_snippets)}
+
+
+# ---------------------------------------------------------------------------
 # Vendor dispatch table
 # ---------------------------------------------------------------------------
 # Maps device.platform (case-insensitive) → (executor, verifier) callables.
@@ -208,10 +268,12 @@ def _srlinux_ssh_verifier(device_id: str, expected_snippets: list[str]) -> dict:
 _VENDOR_EXECUTORS: dict[str, Callable] = {
     "vyos":    _default_ssh_executor,
     "srlinux": _srlinux_ssh_executor,
+    "frr":     _frr_executor,
 }
 _VENDOR_VERIFIERS: dict[str, Callable] = {
     "vyos":    _default_ssh_verifier,
     "srlinux": _srlinux_ssh_verifier,
+    "frr":     _frr_verifier,
 }
 
 

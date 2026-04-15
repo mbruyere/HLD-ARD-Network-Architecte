@@ -46,6 +46,13 @@ _KIND_MAP: dict[tuple[str, str], dict] = {
         "kind": "linux",
         "image": "ghcr.io/sysoleg/vyos-container:latest",
     },
+    # Slice 5 — FRRouting for edge routers. Built locally because Docker
+    # Hub's frrouting/frr image is amd64-only; see infra/frr-image/Dockerfile.
+    # Must run privileged for the netlink socket used by zebra.
+    ("frr", "frr"): {
+        "kind": "linux",
+        "image": "ibn-frr:local",
+    },
 }
 
 

@@ -1,0 +1,6 @@
+{# FRR base config — hostname + system identity (Slice 5)
+   Rendered as FRR CLI commands suitable for `vtysh` over stdin.
+   The closing `write memory` is added by the executor, not the template. #}
+hostname {{ device.hostname }}
+service integrated-vtysh-config
+log syslog informational
