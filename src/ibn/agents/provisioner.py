@@ -228,6 +228,141 @@ class Provisioner:
             duration_ms = int((time.monotonic() - start) * 1000),
         )
 
+    def provision_batch(
+        self,
+        device_entries: list,
+        deploy_space: str = "ibn-deploy-001",
+    ) -> list:
+        """Provision multiple devices with a single clab deploy (Slice 5).
+
+        The per-device ``provision()`` runs one clab deploy per call,
+        which scales O(N * topology_size) because ``--reconfigure``
+        processes the whole topology every time. With N=4 new nodes
+        on a busy ARM64 host, sequential deploys exceed the 300s
+        timeout on the third iteration.
+
+        ``provision_batch`` fixes this by:
+          1. Skipping already-running devices (adopt path, inline)
+          2. Adding all remaining devices to the YAML in one pass
+          3. Running ``clab deploy --reconfigure`` ONCE
+          4. Polling each new container and writing PROVISIONED events
+
+        Returns a list of ``ProvisionResult`` in the same order as
+        ``device_entries``.
+        """
+        results: list = []
+        to_deploy: list = []
+
+        # Phase 1 — adopt any already-running containers
+        for entry in device_entries:
+            start = time.monotonic()
+            container = entry.clab_container
+            device_id = entry.device_id
+            if self._container_running(container):
+                self._log.info(
+                    "Provisioner: container %s already running — adopting",
+                    container,
+                )
+                self._safe_lifecycle_update(device_id, DeviceLifecycleState.ACTIVE.value)
+                event = LifecycleEvent(
+                    eventId   = f"EVT-ADOPT-{uuid.uuid4().hex[:8].upper()}",
+                    deviceId  = device_id,
+                    eventType = "ADOPTED",
+                    fromState = DeviceLifecycleState.PLANNED.value,
+                    toState   = DeviceLifecycleState.ACTIVE.value,
+                    payload   = f"container={container} (externally provisioned)",
+                )
+                self._safe_create_event(event)
+                results.append(ProvisionResult(
+                    device_id=device_id, container=container,
+                    success=True, state=DeviceLifecycleState.ACTIVE.value,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                ))
+            else:
+                to_deploy.append((entry, start))
+
+        if not to_deploy:
+            return results
+
+        # Phase 2 — mutate YAML with all new nodes at once
+        surviving: list = []
+        for entry, start in to_deploy:
+            try:
+                self._add_node_to_topology(entry)
+                surviving.append((entry, start))
+            except UnsupportedPlatformError as exc:
+                results.append(self._provision_failure(
+                    entry.device_id, entry.clab_container,
+                    f"unsupported platform: {exc}",
+                    start, deploy_space,
+                ))
+        to_deploy = surviving
+
+        if not to_deploy:
+            return results
+
+        self._note(
+            deploy_space,
+            f"Provisioner: batched deploy of {len(to_deploy)} new device(s): "
+            f"{', '.join(e.clab_container for e, _ in to_deploy)}",
+            "provision-batch-start",
+        )
+
+        # Phase 3 — ONE clab deploy for all new nodes
+        batch_start = time.monotonic()
+        try:
+            self._clab_deploy()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            err = (
+                f"batched clab deploy failed: "
+                f"{type(exc).__name__}: "
+                f"{(getattr(exc, 'stderr', None) or b'').decode(errors='replace')[:400]}"
+            )
+            for entry, start in to_deploy:
+                results.append(self._provision_failure(
+                    entry.device_id, entry.clab_container, err, start, deploy_space,
+                ))
+            return results
+
+        batch_ms = int((time.monotonic() - batch_start) * 1000)
+        self._log.info(
+            "Provisioner: batched clab deploy completed in %dms for %d nodes",
+            batch_ms, len(to_deploy),
+        )
+
+        # Phase 4 — verify each container, write PROVISIONED per device
+        for entry, start in to_deploy:
+            container = entry.clab_container
+            device_id = entry.device_id
+            if not self._wait_for_container(container, timeout=60):
+                results.append(self._provision_failure(
+                    device_id, container,
+                    "container did not appear after batched deploy",
+                    start, deploy_space,
+                ))
+                continue
+            self._safe_lifecycle_update(device_id, DeviceLifecycleState.PROVISIONED.value)
+            event = LifecycleEvent(
+                eventId   = f"EVT-PROV-{uuid.uuid4().hex[:8].upper()}",
+                deviceId  = device_id,
+                eventType = "PROVISIONED",
+                fromState = DeviceLifecycleState.PLANNED.value,
+                toState   = DeviceLifecycleState.PROVISIONED.value,
+                payload   = f"container={container} mgmt={entry.mgmt_ipv4} batched=True",
+            )
+            self._safe_create_event(event)
+            self._note(
+                deploy_space,
+                f"Provisioner: {device_id} → {container} is up (batched)",
+                "provision-result",
+            )
+            results.append(ProvisionResult(
+                device_id=device_id, container=container,
+                success=True, state=DeviceLifecycleState.PROVISIONED.value,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            ))
+        return results
+
     def retire(self, device_id: str, deploy_space: str = "ibn-deploy-001") -> RetireResult:
         """Tear down the container for an HLD-removed device.
 
@@ -335,7 +470,9 @@ class Provisioner:
             cmd,
             check=True,
             capture_output=True,
-            timeout=300,
+            # 600s — busy hosts with 5+ nodes + tight memory can blow
+            # past 300s for a single --reconfigure pass.
+            timeout=600,
         )
 
     def _docker_rm_force(self, container: str) -> None:

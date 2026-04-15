@@ -515,7 +515,23 @@ class HldCommitPipeline:
         from ibn.agents.provisioner import Provisioner
         prov = Provisioner(self._neo4j, self._lm)
 
-        for entry in new_device_entries:
+        # Slice 5: batch-deploy when there's more than one new device —
+        # one clab deploy --reconfigure for all, instead of N sequential
+        # full-topology deploys that O(N^2) blow past the timeout.
+        if len(new_device_entries) > 1:
+            self._note(
+                f"Batch-provisioning {len(new_device_entries)} new devices: "
+                f"{', '.join(e.device_id for e in new_device_entries)}"
+            )
+            batch = prov.provision_batch(new_device_entries)
+            results["provisioned"].extend(batch)
+            for r in batch:
+                if not r.success:
+                    self._note(
+                        f"PROVISION FAILED for {r.device_id}: {r.error}"
+                    )
+        elif new_device_entries:
+            entry = new_device_entries[0]
             self._note(
                 f"Provisioning new device {entry.device_id} "
                 f"({entry.vendor}/{entry.platform}) → {entry.clab_container}"
