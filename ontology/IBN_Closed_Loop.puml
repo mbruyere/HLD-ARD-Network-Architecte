@@ -1,0 +1,201 @@
+@startuml IBN_Closed_Loop
+
+' =============================================================================
+'  PlantUML — Intent-Based Networking : Closed-Loop View (v2)
+'  Companion diagram to the full ontology (Neo4j_Schema_Cypher.cypher v1.0)
+'  Layout : two columns
+'    LEFT  — DEPLOY  : Intent → Translation → Policy → Device/Segment → Config
+'    RIGHT — ASSURE  : Telemetry → AssuranceResult → Intent (closes loop)
+'    BOTTOM — DRIFT  : AssuranceResult → Incident → RootCause → Config
+' =============================================================================
+
+skinparam classAttributeIconSize 0
+skinparam shadowing              false
+skinparam classBorderColor       #37474F
+skinparam packageBackgroundColor transparent
+skinparam packageStyle           rectangle
+skinparam ArrowColor             #455A64
+skinparam ArrowFontColor         #263238
+skinparam ArrowFontSize          12
+skinparam ArrowThickness         1.4
+skinparam defaultFontName        Helvetica
+skinparam nodesep                40
+skinparam ranksep                55
+skinparam linetype               polyline
+
+title <b>Intent-Based Networking — Closed-Loop Cycle</b>\nFrom declarative intent to continuous assurance
+
+
+' =============================================================================
+'  ENTITIES — minimal, colour-coded by plane
+' =============================================================================
+
+' --- Intent plane (purple) ---
+class Intent #F3E5F5 {
+  + intentId
+  --
+  statement
+  type   <i>SECURITY · PERFORMANCE …</i>
+  priority
+  status
+}
+
+class IntentTranslation #F3E5F5 {
+  + translationId
+  --
+  policyType
+  translationStatus
+}
+
+class Policy #F3E5F5 {
+  + policyId
+  --
+  type
+  lifecycleState
+}
+
+' --- Realization plane (blue / orange) ---
+class Device #E3F2FD {
+  + deviceId
+  --
+  deviceRole
+  lifecycleState
+}
+
+class Segment #FFF3E0 {
+  + segmentId
+  --
+  population
+  qosDscp
+}
+
+' --- State plane (yellow) ---
+class ConfigurationVersion #FFFDE7 {
+  + configId
+  --
+  capturedAt
+  hash
+  approved
+}
+
+class TelemetryRecord #FFFDE7 {
+  + recordId
+  --
+  metric
+  timestamp
+}
+
+class AssuranceResult #FFFDE7 {
+  + resultId
+  --
+  compliance  <i>COMPLIANT · DEGRADED · NON_COMPLIANT</i>
+  score
+  timestamp
+}
+
+' --- Incident plane (pink) ---
+class Incident #FFEBEE {
+  + incidentId
+  --
+  severity
+  status
+}
+
+class RootCause #FFEBEE {
+  + rcaId
+  --
+  category
+}
+
+
+' =============================================================================
+'  COLUMN ANCHORING — force LEFT (deploy) / RIGHT (assure)
+'  Each pair of hidden edges fixes the rank of two opposite-column nodes
+' =============================================================================
+
+Intent              -[hidden]right- AssuranceResult
+IntentTranslation   -[hidden]right- TelemetryRecord
+Policy              -[hidden]right- TelemetryRecord
+
+' Deploy column (top → bottom)
+Intent              -[hidden]down-  IntentTranslation
+IntentTranslation   -[hidden]down-  Policy
+
+' Assure column (top → bottom; arrows will flow up via real edges)
+AssuranceResult     -[hidden]down-  TelemetryRecord
+
+
+' =============================================================================
+'  DEPLOY PATH  (solid — all explicit in source schema)
+' =============================================================================
+
+Intent              -down->  IntentTranslation     : <b>TRANSLATED_TO</b>
+IntentTranslation   -down->  Policy                : <b>GENERATES_POLICY</b>
+Policy              -down->  Device                : <b>APPLIED_TO</b>
+Policy              -down->  Segment               : <b>GOVERNS</b>
+Device              -down->  ConfigurationVersion  : <b>HAS_CONFIG</b>
+
+
+' =============================================================================
+'  OBSERVE & ASSURE  (mix of inferred + explicit)
+' =============================================================================
+
+' inferred (dotted) — implied by IBN semantics, not present in v1.0
+Device                ..> TelemetryRecord    : <i>observed</i>
+ConfigurationVersion  ..> TelemetryRecord    : <i>state hash</i>
+TelemetryRecord       -up-> AssuranceResult  : <i>evaluated</i>
+
+' explicit — closes the feedback loop
+AssuranceResult     -up->   Intent                 : <b>ASSURES</b>\n<b><color:#C62828>★ closes loop</color></b>
+
+
+' =============================================================================
+'  DRIFT-DETECTION BRANCH
+' =============================================================================
+
+AssuranceResult     ..>   Incident               : <i>if NON_COMPLIANT</i>
+Incident            -->   RootCause              : <b>HAS_ROOT_CAUSE</b>
+RootCause           -->   ConfigurationVersion   : <b>CAUSED_BY</b>\n<i>(drift)</i>
+
+
+' =============================================================================
+'  CONTEXTUAL NOTES
+' =============================================================================
+
+note left of Intent
+  <b>Declarative — not imperative.</b>
+  Operator states <i>what</i>, not <i>how</i>.
+  e.g. "Guest devices must not access
+  any internal resource or segment"
+end note
+
+note right of AssuranceResult
+  Continuous compliance check.
+  When <b>NON_COMPLIANT</b>, drift
+  is surfaced as an Incident and
+  traced back to the offending
+  configuration version.
+end note
+
+note bottom of ConfigurationVersion
+  <b>SSoT anchor.</b>  Every config
+  is hashed and version-chained via
+  PRECEDED_BY — the basis for
+  GitOps-style drift checks.
+end note
+
+
+' =============================================================================
+'  LEGEND
+' =============================================================================
+legend bottom
+  | Notation | Meaning |
+  | ── solid | edge **explicitly defined** in Neo4j_Schema_Cypher.cypher v1.0 |
+  | ╴╴ dotted | edge **inferred** from closed-loop semantics — candidate for v1.1 |
+  ----
+  <b>Plane colour key</b>
+  <back:#F3E5F5>  Intent  </back>   <back:#E3F2FD>  Infrastructure  </back>   <back:#FFF3E0>  Topology / Segmentation  </back>
+  <back:#FFFDE7>  Configuration & State  </back>   <back:#FFEBEE>  Incidents  </back>
+endlegend
+
+@enduml

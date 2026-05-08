@@ -10,3 +10,21 @@ topology:
       image: ghcr.io/nokia/srlinux:latest
       type: ixrd2l
       mgmt-ipv4: 192.168.100.121
+    acc-01:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      type: ixrd2l
+      mgmt-ipv4: 192.168.100.131
+    agg-01:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      type: ixrd2l
+      mgmt-ipv4: 192.168.100.141
+    edge-01:
+      kind: linux
+      image: ibn-frr:local
+      mgmt-ipv4: 192.168.100.151
+    edge-02:
+      kind: linux
+      image: ibn-frr:local
+      mgmt-ipv4: 192.168.100.152

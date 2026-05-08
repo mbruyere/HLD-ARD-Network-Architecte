@@ -1,0 +1,580 @@
+@startuml Network_Architecture_Lifecycle_Ontology
+
+' =============================================================================
+'  PlantUML representation of the Neo4j Network Architecture Lifecycle Ontology
+'  Source : Neo4j_Schema_Cypher.cypher  (v1.0, March 2026)
+'  Layout : 3 x 3 grid; packages stacked vertically inside (tall & narrow)
+'             Row 1 — Design plane     (Arch / Intent / Change)
+'             Row 2 — Realization plane (Infra / Topology / Config-State)
+'             Row 3 — Operations plane  (Lifecycle / People / Incidents)
+' =============================================================================
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle           rectangle
+skinparam shadowing              false
+skinparam classBackgroundColor   #FAFAFA
+skinparam classBorderColor       #424242
+skinparam packageBackgroundColor transparent
+skinparam ArrowColor             #455A64
+skinparam ArrowFontColor         #263238
+skinparam ArrowFontSize          11
+skinparam defaultFontName        Helvetica
+skinparam linetype               polyline
+skinparam nodesep                25
+skinparam ranksep                45
+
+title Network Architecture Lifecycle Ontology\nIntent-Based Networking — Closed-Loop Knowledge Graph (v1.0, March 2026)
+
+
+' =============================================================================
+'  ROW 1 — DESIGN PLANE
+' =============================================================================
+
+' --- L3 Architecture & Design (Row 1, Col 1) -------------------------------
+package "L3 · Architecture & Design" #E8F5E9 {
+
+  class Architecture {
+    + archId : String <<PK>>
+    --
+    name      : String
+    domain    : String
+    owner     : String
+    createdAt : DateTime
+  }
+
+  class ArchitectureVersion {
+    + versionId : String <<PK>>
+    --
+    version         : String
+    status          : String <<idx>>
+    approvedAt      : DateTime
+    changeRationale : String
+    breakingChange  : Boolean
+  }
+
+  class HLDDocument {
+    + docId : String <<PK>>
+    --
+    title    : String
+    version  : String
+    filePath : String
+    format   : String
+    status   : String
+  }
+
+  class ARDDocument {
+    + docId : String <<PK>>
+    --
+    title     : String
+    framework : String
+    version   : String
+    filePath  : String
+  }
+
+  class DesignDecision {
+    + decisionId : String <<PK>>
+    --
+    title     : String
+    decision  : String
+    rationale : String
+  }
+
+  class DesignPrinciple {
+    + principleId : String <<PK>>
+  }
+
+  class BusinessUseCase {
+    + bucId : String <<PK>>
+  }
+
+  class ComplianceRequirement {
+    + reqId : String <<PK>>
+    --
+    category  : String
+    statement : String
+  }
+
+  class ThreatVector {
+    + threatId : String <<PK>>
+    --
+    name        : String
+    description : String
+  }
+
+  class SecurityCapability {
+    + capabilityId : String <<PK>>
+  }
+
+  ' Force tall-narrow layout inside the package
+  Architecture          -[hidden]down- ArchitectureVersion
+  ArchitectureVersion   -[hidden]down- HLDDocument
+  HLDDocument           -[hidden]down- ARDDocument
+  ARDDocument           -[hidden]down- DesignDecision
+  DesignDecision        -[hidden]down- ComplianceRequirement
+  ComplianceRequirement -[hidden]down- DesignPrinciple
+  DesignPrinciple       -[hidden]down- BusinessUseCase
+  BusinessUseCase       -[hidden]down- ThreatVector
+  ThreatVector          -[hidden]down- SecurityCapability
+}
+
+
+' --- L4 Policy & Intent (Row 1, Col 2) -------------------------------------
+package "L4 · Policy & Intent" #F3E5F5 {
+
+  class Intent {
+    + intentId : String <<PK>>
+    --
+    statement : String
+    type      : String <<idx>>
+    priority  : Integer
+    status    : String <<idx>>
+    createdAt : DateTime
+  }
+
+  class IntentTranslation {
+    + translationId : String <<PK>>
+    --
+    policyType        : String
+    translatedAt      : DateTime
+    translatedBy      : String
+    translationStatus : String
+  }
+
+  class Policy {
+    + policyId : String <<PK>>
+    --
+    name           : String
+    type           : String
+    lifecycleState : String
+    lastModified   : DateTime
+  }
+
+  class FirewallRule {
+    + ruleId : String <<PK>>
+  }
+
+  class SecurityGroup {
+    + groupId : String <<PK>>
+    + tag     : String <<unique>>
+  }
+
+  Policy       -[hidden]down- FirewallRule
+  FirewallRule -[hidden]down- SecurityGroup
+}
+
+
+' --- L7 Change Management (Row 1, Col 3) -----------------------------------
+package "L7 · Change Management" #E0F7FA {
+
+  class ChangeRequest {
+    + crId : String <<PK>>
+    --
+    type   : String <<idx>>
+    status : String <<idx>>
+  }
+
+  class ChangeWindow {
+    + windowId : String <<PK>>
+  }
+
+  class Approval {
+    + approvalId : String <<PK>>
+  }
+
+  class DeploymentEvent {
+    + deployId : String <<PK>>
+  }
+
+  class MigrationPlan {
+    + planId : String <<PK>>
+  }
+
+  ChangeRequest    -[hidden]down- ChangeWindow
+  ChangeWindow     -[hidden]down- Approval
+  Approval         -[hidden]down- DeploymentEvent
+  DeploymentEvent  -[hidden]down- MigrationPlan
+}
+
+
+' =============================================================================
+'  ROW 2 — REALIZATION PLANE
+' =============================================================================
+
+' --- L1 Infrastructure (Row 2, Col 1) --------------------------------------
+package "L1 · Infrastructure" #E3F2FD {
+
+  class Site {
+    + siteId : String <<PK>>
+    --
+    name           : String
+    siteType       : String
+    lifecycleState : String
+  }
+
+  class Device {
+    + deviceId : String <<PK>>
+    + hostname : String <<unique>>
+    --
+    vendor         : String
+    model          : String
+    deviceRole     : String <<idx>>
+    lifecycleState : String <<idx>>
+    siteId         : String <<idx>>
+    haRole         : String
+  }
+
+  class Interface {
+    + interfaceId : String <<PK>>
+    --
+    operState  : String <<idx>>
+    adminState : String <<idx>>
+  }
+
+  class PhysicalLink {
+    + linkId : String <<PK>>
+  }
+
+  class LogicalLink {
+    + linkId : String <<PK>>
+  }
+
+  class VLAN {
+    + vlanId : Integer <<PK>>
+    --
+    name           : String
+    vlanGroup      : String <<idx>>
+    description    : String
+    lifecycleState : String <<idx>>
+  }
+
+  class VRF {
+    + vrfId : String <<PK>>
+    --
+    name : String
+  }
+
+  class Subnet {
+    + subnetId : String <<PK>>
+    + prefix   : String <<unique>>
+  }
+
+  class IPAddress {
+    + address : String <<PK>>
+  }
+
+  class IPPool {
+    + poolId : String <<PK>>
+  }
+
+  class RoutingDomain {
+    + domainId : String <<PK>>
+  }
+
+  Site          -[hidden]down- Device
+  Device        -[hidden]down- Interface
+  Interface     -[hidden]down- PhysicalLink
+  PhysicalLink  -[hidden]down- LogicalLink
+  LogicalLink   -[hidden]down- VLAN
+  VLAN          -[hidden]down- VRF
+  VRF           -[hidden]down- Subnet
+  Subnet        -[hidden]down- IPAddress
+  IPAddress     -[hidden]down- IPPool
+  IPPool        -[hidden]down- RoutingDomain
+}
+
+
+' --- L2 Topology & Segmentation (Row 2, Col 2) -----------------------------
+package "L2 · Topology & Segmentation" #FFF3E0 {
+
+  class Topology {
+    + topologyId : String <<PK>>
+    --
+    name     : String
+    model    : String
+    siteType : String
+  }
+
+  class TopologyLayer {
+    + layerId : String <<PK>>
+    --
+    name     : String
+    function : String
+  }
+
+  class Zone {
+    + zoneId : String <<PK>>
+    --
+    name          : String
+    type          : String <<idx>>
+    securityLevel : Integer
+    defaultPolicy : String
+  }
+
+  class Segment {
+    + segmentId : String <<PK>>
+    --
+    name           : String
+    population     : String <<idx>>
+    qosDscp        : Integer
+    internetAccess : Boolean
+    internalAccess : Boolean
+    lifecycleState : String
+  }
+
+  class FirewallPair {
+    + pairId : String <<PK>>
+    --
+    name           : String
+    function       : String
+    haModel        : String
+    failoverTime   : Integer
+    lifecycleState : String
+  }
+
+  class StackGroup {
+    + groupId : String <<PK>>
+  }
+
+  Topology       -[hidden]down- TopologyLayer
+  TopologyLayer  -[hidden]down- Zone
+  Zone           -[hidden]down- Segment
+  Segment        -[hidden]down- FirewallPair
+  FirewallPair   -[hidden]down- StackGroup
+}
+
+
+' --- L5 Configuration & State (Row 2, Col 3) -------------------------------
+package "L5 · Configuration & State" #FFFDE7 {
+
+  class ConfigurationVersion {
+    + configId : String <<PK>>
+    --
+    capturedAt : DateTime
+    hash       : String
+    approved   : Boolean <<idx>>
+  }
+
+  class OperationalState {
+    + stateId : String <<PK>>
+  }
+
+  class TelemetryRecord {
+    + recordId : String <<PK>>
+    --
+    metric    : String   <<idx>>
+    timestamp : DateTime <<idx>>
+  }
+
+  class AssuranceResult {
+    + resultId : String <<PK>>
+    --
+    compliance : String   <<idx>>
+    score      : Float
+    timestamp  : DateTime <<idx>>
+  }
+
+  class SSoT {
+    + ssotId : String <<PK>>
+  }
+
+  ConfigurationVersion -[hidden]down- OperationalState
+  OperationalState     -[hidden]down- TelemetryRecord
+  TelemetryRecord      -[hidden]down- AssuranceResult
+  AssuranceResult      -[hidden]down- SSoT
+}
+
+
+' =============================================================================
+'  ROW 3 — OPERATIONS PLANE
+' =============================================================================
+
+' --- L8 Lifecycle (Row 3, Col 1) -------------------------------------------
+package "L8 · Lifecycle" #F1F8E9 {
+
+  class LifecyclePhase {
+    + phaseId : String <<PK>>
+    --
+    name        : String <<idx>>
+    description : String
+  }
+
+  class LifecycleTransition {
+    + transitionId : String <<PK>>
+    --
+    timestamp : DateTime
+    reason    : String
+  }
+
+  class CommissioningRecord {
+    + recordId : String <<PK>>
+  }
+
+  class DecommissioningRecord {
+    + recordId : String <<PK>>
+  }
+
+  LifecyclePhase      -[hidden]down- LifecycleTransition
+  LifecycleTransition -[hidden]down- CommissioningRecord
+  CommissioningRecord -[hidden]down- DecommissioningRecord
+}
+
+
+' --- L9 People & Process (Row 3, Col 2) ------------------------------------
+package "L9 · People & Process" #ECEFF1 {
+
+  class Operator {
+    + operatorId : String <<PK>>
+    --
+    name : String
+  }
+
+  class Team {
+    + teamId : String <<PK>>
+  }
+
+  class Ticket {
+    + ticketId : String <<PK>>
+  }
+
+  class SLA {
+    + slaId : String <<PK>>
+    --
+    name : String
+  }
+
+  class SLAViolation {
+    + violationId : String <<PK>>
+  }
+
+  Operator -[hidden]down- Team
+  Team     -[hidden]down- Ticket
+  Ticket   -[hidden]down- SLA
+  SLA      -[hidden]down- SLAViolation
+}
+
+
+' --- L6 Incidents (Row 3, Col 3) -------------------------------------------
+package "L6 · Incidents" #FFEBEE {
+
+  class Incident {
+    + incidentId : String <<PK>>
+    --
+    title    : String
+    severity : String <<idx>>
+    status   : String <<idx>>
+  }
+
+  class Alert {
+    + alertId : String <<PK>>
+  }
+
+  class RootCause {
+    + rcaId : String <<PK>>
+    --
+    category : String <<idx>>
+  }
+
+  class Remediation {
+    + remediationId : String <<PK>>
+  }
+
+  class DiagnosticProbe {
+    + probeId : String <<PK>>
+  }
+
+  Incident    -[hidden]down- Alert
+  Alert       -[hidden]down- RootCause
+  RootCause   -[hidden]down- Remediation
+  Remediation -[hidden]down- DiagnosticProbe
+}
+
+
+' =============================================================================
+'  GRID ANCHORS — column hints (top → bottom)
+'  Vertical hints work better than horizontal ones in Graphviz dot
+' =============================================================================
+
+' Column 1 (left)
+Architecture   -[hidden]down- Site
+Site           -[hidden]down- LifecyclePhase
+
+' Column 2 (middle)
+Intent         -[hidden]down- Topology
+Topology       -[hidden]down- Operator
+
+' Column 3 (right)
+ChangeRequest  -[hidden]down- ConfigurationVersion
+ConfigurationVersion -[hidden]down- Incident
+
+
+' =============================================================================
+'  RELATIONSHIPS  (explicit edges in the source schema)
+' =============================================================================
+
+' --- L1 / L2 — Infrastructure & topology binding ---
+Device         "1" --> "*"   Interface     : HAS_INTERFACE
+Interface      "*" --> "*"   VLAN          : CARRIES_VLAN
+VLAN           "*" --> "1"   VRF           : BOUND_TO
+Device         "*" --> "1"   Site          : LOCATED_AT
+Device         "*" --> "1"   TopologyLayer : IN_LAYER
+Device         "*" --> "0..1" FirewallPair : MEMBER_OF_PAIR
+Site           "*" --> "1"   Topology      : INSTANCE_OF_TOPOLOGY
+TopologyLayer  "*" --> "1"   Topology      : BELONGS_TO_TOPOLOGY
+Segment        "*" --> "1"   VLAN          : MAPPED_TO_VLAN
+Segment        "*" --> "1"   Zone          : BELONGS_TO_ZONE
+
+' --- L3 — Architecture & design ---
+Architecture        "1" --> "*" ArchitectureVersion : HAS_VERSION
+ArchitectureVersion "*" --> "1" HLDDocument         : BASED_ON_HLD
+ArchitectureVersion "*" --> "*" ARDDocument         : REFERENCES_ARD
+ArchitectureVersion "*" --> "*" DesignDecision      : CONTAINS_DECISION
+ArchitectureVersion --> ArchitectureVersion         : PRECEDED_BY
+DesignDecision      "*" --> "*" ComplianceRequirement : SATISFIES
+ThreatVector        "*" --> "*" SecurityCapability  : MITIGATED_BY
+SecurityCapability  "*" --> "*" Device              : ENFORCED_BY
+
+' --- L4 — Policy & intent (closed-loop) ---
+Intent            "1" --> "*" IntentTranslation : TRANSLATED_TO
+IntentTranslation "1" --> "*" Policy            : GENERATES_POLICY
+Policy            "*" --> "*" Device            : APPLIED_TO
+Policy            "*" --> "*" Segment           : GOVERNS
+
+' --- L5 — Configuration & state ---
+Device               "1" --> "*" ConfigurationVersion : HAS_CONFIG
+ConfigurationVersion --> ConfigurationVersion         : PRECEDED_BY
+AssuranceResult      "*" --> "1" Intent               : ASSURES
+
+' --- L6 — Incidents ---
+Incident  "1" --> "1" RootCause            : HAS_ROOT_CAUSE
+RootCause "*" --> "*" ConfigurationVersion : CAUSED_BY
+
+' --- L8 — Lifecycle ---
+Device              "*" --> "1" LifecyclePhase : IN_PHASE
+LifecycleTransition "*" --> "1" LifecyclePhase : FROM_PHASE
+LifecycleTransition "*" --> "1" LifecyclePhase : TO_PHASE
+LifecycleTransition "*" --> "1" Operator       : PERFORMED_BY
+CommissioningRecord "*" --> "1" Device         : COMMISSIONED_BY
+
+' --- L9 — People & process ---
+SLA "*" --> "*" Segment : COVERS
+
+
+' =============================================================================
+'  LEGEND
+' =============================================================================
+legend bottom
+  | Stereotype | Meaning |
+  | <<PK>> | Unique constraint — primary identifier |
+  | <<unique>> | Additional uniqueness constraint |
+  | <<idx>> | Indexed property (B-tree) |
+  ----
+  Layout : 3 × 3 grid of layer-packages
+    Row 1 — Design plane       (L3 Arch · L4 Intent · L7 Change)
+    Row 2 — Realization plane  (L1 Infra · L2 Topology · L5 Config-State)
+    Row 3 — Operations plane   (L8 Lifecycle · L9 People · L6 Incidents)
+
+  Relationships drawn are only those explicit in the source Cypher
+  (Section 4–5 MERGE statements + Section 6 query templates).
+endlegend
+
+@enduml

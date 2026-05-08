@@ -51,3 +51,12 @@ clab-*/
 
 # Leftover sed temp files at repo root
 sed[0-9A-Za-z]*
+
+# Broken symlinks left over from past containerlab runs
+clab-HLDARDNetwor
+
+# Paper has its own dedicated repository (mbruyere/ibn-closed-loop-paper)
+paper/
+
+# Claude Code local workspace settings
+.claude/
