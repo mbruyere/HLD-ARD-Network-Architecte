@@ -126,6 +126,28 @@ gh auth status
 Target host: Ubuntu 24.04 or 26.04 LTS amd64, ≥ 8 GB RAM, ≥ 30 GB
 free disk, sudo access.
 
+### 3.0 One-liner (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mbruyere/HLD-ARD-Network-Architecte/x86-migration/scripts/install_x86.sh | bash
+```
+
+Or with optional flags:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mbruyere/HLD-ARD-Network-Architecte/x86-migration/scripts/install_x86.sh -o install_x86.sh
+bash install_x86.sh --with-latex --with-claude
+```
+
+This runs Parts 3.1, 3.2, 3.3 and Part 4.1 + 4.4 in one pass:
+installs Docker CE, containerlab, gh, Python venv with pinned
+dependencies, clones all three repos under `$HOME/`, pulls all
+container images, and builds the local images. At the end it prints
+the three manual steps only you can do (`.env`, `gh auth login`,
+`claude`).
+
+If you prefer to do it by hand, the breakdown follows.
+
 ### 3.1 Base packages and Docker
 
 ```bash
