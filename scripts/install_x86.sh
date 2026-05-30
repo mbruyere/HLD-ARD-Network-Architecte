@@ -232,24 +232,41 @@ fi
 step "Clone repositories under \$HOME"
 
 clone_or_pull() {
-  local repo="$1" dir="$2" branch="${3:-}"
+  local repo="$1" dir="$2" branch="${3:-}" required="${4:-yes}"
   cd "$HOME"
   if [ -d "$dir/.git" ]; then
     info "$dir exists — fetching latest"
     run "git -C '$HOME/$dir' fetch --all --quiet"
     [ -n "$branch" ] && run "git -C '$HOME/$dir' checkout '$branch'"
     run "git -C '$HOME/$dir' pull --ff-only --quiet || true"
-  else
-    run "git clone --quiet '$repo' '$HOME/$dir'"
+    return 0
+  fi
+
+  # Force no interactive credential prompts so a private/unauth'd
+  # repo fails fast instead of hanging on "Username for https://...".
+  if [ "$DRY_RUN" = 1 ]; then
+    info "DRY: GIT_TERMINAL_PROMPT=0 git clone --quiet '$repo' '$HOME/$dir'"
+  elif GIT_TERMINAL_PROMPT=0 git -c credential.helper= clone --quiet "$repo" "$HOME/$dir"; then
+    info "+ git clone $repo -> $HOME/$dir"
     [ -n "$branch" ] && run "git -C '$HOME/$dir' checkout '$branch'"
+  else
+    if [ "$required" = "yes" ]; then
+      fail "git clone $repo failed (repo may be private; run 'gh auth login' first)"
+    fi
+    warn "skipped $repo (clone failed, marked optional)"
+    warn "to fetch it later: gh auth login && git clone $repo ~/$dir"
+    return 1
   fi
 }
 
-clone_or_pull "$PROJECT_REPO"      "$PROJECT_DIR_NAME"      "$BRANCH"
-clone_or_pull "$PAPER_REPO"        "$PAPER_DIR_NAME"        "main"
-clone_or_pull "$GRAPH_MEMORY_REPO" "$GM_DIR_NAME"           ""
+clone_or_pull "$PROJECT_REPO"      "$PROJECT_DIR_NAME"      "$BRANCH"   "yes"
+clone_or_pull "$GRAPH_MEMORY_REPO" "$GM_DIR_NAME"           ""          "yes"
+# Paper repo is optional — operators who only run the lab pipeline
+# do not need it. If it's private and the user hasn't authed gh yet,
+# we warn and continue.
+clone_or_pull "$PAPER_REPO"        "$PAPER_DIR_NAME"        "main"      "no"
 
-ok "all three repos under $HOME/"
+ok "core repos under $HOME/"
 
 # ---------- Python venv ----------------------------------------------------
 step "Python venv + requirements"
