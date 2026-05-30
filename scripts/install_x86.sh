@@ -145,6 +145,16 @@ APT_BASE=(
   python3 python3-venv python3-dev python3-pip
 )
 
+# Heal a broken /etc/apt/sources.list.d/docker.list left over from
+# earlier failed runs (older versions of this script wrote the literal
+# "$VERSION_CODENAME" into that file). Otherwise `apt-get update` bails
+# before we can install anything.
+if [ -f /etc/apt/sources.list.d/docker.list ] && \
+   grep -q '\$VERSION_CODENAME' /etc/apt/sources.list.d/docker.list 2>/dev/null; then
+  warn "removing broken /etc/apt/sources.list.d/docker.list left from previous run"
+  run "sudo rm -f /etc/apt/sources.list.d/docker.list"
+fi
+
 run "sudo apt-get update -qq"
 run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${APT_BASE[*]}"
 
