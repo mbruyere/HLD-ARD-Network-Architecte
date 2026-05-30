@@ -13,10 +13,9 @@
 #
 # Or with options (download first, do not pipe):
 #   curl -fsSL https://raw.githubusercontent.com/mbruyere/HLD-ARD-Network-Architecte/x86-migration/scripts/install_x86.sh -o install_x86.sh
-#   bash install_x86.sh --with-latex --with-claude
+#   bash install_x86.sh --with-claude
 #
 # Flags (all optional):
-#   --with-latex     Install texlive for paper builds (~1 GB).
 #   --with-claude    Run the Claude Code installer at the end.
 #   --skip-images    Do not pull container images (saves ~15 GB but
 #                    smoke test will fail until you pull manually).
@@ -34,12 +33,15 @@
 set -Eeuo pipefail
 
 # ---------- config ----------------------------------------------------------
+# Note: the paper repo (mbruyere/ibn-closed-loop-paper) is intentionally
+# NOT cloned by this installer. It lives in its own repo with its own
+# lifecycle and is irrelevant to running the lab pipeline. If you want
+# to work on the paper from this host, clone it yourself:
+#   git clone https://github.com/mbruyere/ibn-closed-loop-paper.git
 PROJECT_REPO="https://github.com/mbruyere/HLD-ARD-Network-Architecte.git"
-PAPER_REPO="https://github.com/mbruyere/ibn-closed-loop-paper.git"
 GRAPH_MEMORY_REPO="https://github.com/Cloud-Temple/graph-memory.git"
 
 PROJECT_DIR_NAME="HLD-ARD-Network-Architecte"
-PAPER_DIR_NAME="ibn-closed-loop-paper"
 GM_DIR_NAME="graph-memory"
 
 PYTHON_BIN="python3"                  # use whatever the distro ships (3.12+ supported)
@@ -61,7 +63,6 @@ IMAGES_TO_PULL=(
 )
 
 # ---------- flags ----------------------------------------------------------
-WITH_LATEX=0
 WITH_CLAUDE=0
 SKIP_IMAGES=0
 DRY_RUN=0
@@ -69,7 +70,6 @@ BRANCH="$DEFAULT_BRANCH"
 
 while [ "${1:-}" != "" ]; do
   case "$1" in
-    --with-latex)   WITH_LATEX=1 ;;
     --with-claude)  WITH_CLAUDE=1 ;;
     --skip-images)  SKIP_IMAGES=1 ;;
     --dry-run)      DRY_RUN=1 ;;
@@ -221,13 +221,6 @@ else
   run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gh"
 fi
 
-# ---------- LaTeX (optional) -----------------------------------------------
-if [ "$WITH_LATEX" = 1 ]; then
-  step "LaTeX (for paper builds)"
-  run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-       texlive-publishers texlive-fonts-recommended texlive-latex-extra latexmk"
-fi
-
 # ---------- clone repos ----------------------------------------------------
 step "Clone repositories under \$HOME"
 
@@ -261,10 +254,6 @@ clone_or_pull() {
 
 clone_or_pull "$PROJECT_REPO"      "$PROJECT_DIR_NAME"      "$BRANCH"   "yes"
 clone_or_pull "$GRAPH_MEMORY_REPO" "$GM_DIR_NAME"           ""          "yes"
-# Paper repo is optional — operators who only run the lab pipeline
-# do not need it. If it's private and the user hasn't authed gh yet,
-# we warn and continue.
-clone_or_pull "$PAPER_REPO"        "$PAPER_DIR_NAME"        "main"      "no"
 
 ok "core repos under $HOME/"
 
@@ -347,7 +336,6 @@ cat <<EOF
 
   Branch checked out: ${BOLD}${BRANCH}${RST}
   Repo:               ${HOME}/${PROJECT_DIR_NAME}
-  Paper:              ${HOME}/${PAPER_DIR_NAME}
   Graph-Memory src:   ${HOME}/${GM_DIR_NAME}
 
 EOF

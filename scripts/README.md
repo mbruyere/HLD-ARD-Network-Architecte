@@ -9,12 +9,12 @@ x86 VM with curl:
 curl -fsSL https://raw.githubusercontent.com/mbruyere/HLD-ARD-Network-Architecte/x86-migration/scripts/install_x86.sh | bash
 ```
 
-Or with options (`--with-latex`, `--with-claude`, `--skip-images`,
-`--dry-run`, `--branch <name>`):
+Or with options (`--with-claude`, `--skip-images`, `--dry-run`,
+`--branch <name>`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mbruyere/HLD-ARD-Network-Architecte/x86-migration/scripts/install_x86.sh -o install_x86.sh
-bash install_x86.sh --with-latex --with-claude
+bash install_x86.sh --with-claude
 ```
 
 ### What it does
@@ -27,18 +27,18 @@ bash install_x86.sh --with-latex --with-claude
    `docker` group.
 4. Installs containerlab via `get.containerlab.dev`.
 5. Installs `gh` CLI.
-6. (Optional, `--with-latex`) installs `texlive-publishers`,
-   `texlive-fonts-recommended`, `texlive-latex-extra`, `latexmk`.
-7. Clones three repos under `$HOME/`:
+6. Clones two repos under `$HOME/`:
    - `HLD-ARD-Network-Architecte` (branch: `x86-migration` by default)
-   - `ibn-closed-loop-paper` (branch: `main`)
    - `graph-memory` (for `ibn-graph-memory:local` build)
-8. Creates the Python venv and `pip install -r requirements.txt`.
-9. Pulls all pinned container images (`--skip-images` to skip).
-10. Builds local images: `ibn-graph-memory:local` and the
-    `embedding-proxy` Compose service.
-11. (Optional, `--with-claude`) installs Claude Code.
-12. Prints the three manual steps that only the operator can do:
+   The paper repo (`ibn-closed-loop-paper`) is **not** cloned — it
+   lives in its own repo with its own lifecycle. Clone it separately
+   if you need it on this host.
+7. Creates the Python venv and `pip install -r requirements.txt`.
+8. Pulls all pinned container images (`--skip-images` to skip).
+9. Builds local images: `ibn-graph-memory:local` and the
+   `embedding-proxy` Compose service.
+10. (Optional, `--with-claude`) installs Claude Code.
+11. Prints the three manual steps that only the operator can do:
     - Drop `.env` secrets into place
     - `gh auth login`
     - `claude` first-run auth
