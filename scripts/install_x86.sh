@@ -42,7 +42,7 @@ PROJECT_DIR_NAME="HLD-ARD-Network-Architecte"
 PAPER_DIR_NAME="ibn-closed-loop-paper"
 GM_DIR_NAME="graph-memory"
 
-PYTHON_BIN="python3.12"               # falls back to python3 if absent
+PYTHON_BIN="python3"                  # use whatever the distro ships (3.12+ supported)
 DEFAULT_BRANCH="x86-migration"
 
 # Container images we pre-pull. ibn-frr is intentionally NOT in this
@@ -140,19 +140,25 @@ ok "memory: ${MEM_GB}G"
 step "System packages (apt)"
 
 APT_BASE=(
-  curl ca-certificates gnupg git build-essential jq tree htop
-  iputils-ping unzip rsync
-  python3.12 python3.12-venv python3.12-dev
+  curl ca-certificates gnupg lsb-release software-properties-common
+  git build-essential jq tree htop iputils-ping unzip rsync
+  python3 python3-venv python3-dev python3-pip
 )
 
 run "sudo apt-get update -qq"
 run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${APT_BASE[*]}"
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  warn "$PYTHON_BIN not found, falling back to python3 ($(python3 --version 2>&1))"
-  PYTHON_BIN="python3"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || fail "$PYTHON_BIN still missing after apt install"
+
+PY_VER=$($PYTHON_BIN -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+ok "python: $($PYTHON_BIN --version 2>&1) (= $PY_VER)"
+
+# Project requires >= 3.12 (pygnmi, BaseAgent dual-sink helpers, asyncio
+# patterns). Ubuntu 24.04 ships 3.12; 26.04 ships 3.14 — both supported.
+PY_MAJOR=${PY_VER%%.*}; PY_MINOR=${PY_VER##*.}
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 12 ]; }; then
+  fail "python3 is $PY_VER; project requires >= 3.12"
 fi
-ok "python: $($PYTHON_BIN --version 2>&1)"
 
 # ---------- Docker CE ------------------------------------------------------
 step "Docker CE"
@@ -161,18 +167,27 @@ if command -v docker >/dev/null 2>&1; then
   ok "docker present: $(docker --version)"
 else
   info "installing Docker CE from the official repo"
+
+  # Source /etc/os-release in *this* shell to populate VERSION_CODENAME.
+  # We accept whatever the host advertises; if Docker doesn't yet
+  # publish for that codename we fall back to "noble" (24.04 LTS),
+  # which is binary-compatible with later Ubuntu releases.
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  CODENAME="${VERSION_CODENAME:-noble}"
+  info "Ubuntu codename: $CODENAME"
+
+  if ! curl -fsSI "https://download.docker.com/linux/ubuntu/dists/$CODENAME/Release" >/dev/null 2>&1; then
+    warn "Docker has no apt release for '$CODENAME' yet — falling back to 'noble'"
+    CODENAME="noble"
+  fi
+
   run "sudo install -m 0755 -d /etc/apt/keyrings"
-  run "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-       sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
+  run "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
   run "sudo chmod a+r /etc/apt/keyrings/docker.gpg"
-  CODENAME="$(. /etc/os-release && echo \$VERSION_CODENAME)"
-  run "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] \
-       https://download.docker.com/linux/ubuntu $CODENAME stable' | \
-       sudo tee /etc/apt/sources.list.d/docker.list >/dev/null"
+  run "echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $CODENAME stable' | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null"
   run "sudo apt-get update -qq"
-  run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-       docker-ce docker-ce-cli containerd.io \
-       docker-buildx-plugin docker-compose-plugin"
+  run "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
 fi
 
 if ! id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
